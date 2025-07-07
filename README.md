@@ -1,2 +1,3 @@
 # Thesis-Code
-All code of the cleaning steps and future analysis steps for the gaming survey dataset
+All code of the preprocessing steps, descriptive statistics and visualisations. 
+The transformations for different survey questions are seperated per question, indicated with #####Survey Question Name
