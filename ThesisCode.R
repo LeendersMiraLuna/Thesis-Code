@@ -1,32 +1,38 @@
-# Load libraries
-library(readxl)       # For reading Excel files
-library(data.table)   # For fast data manipulation
-library(clustMixType) # For k-prototypes/k-modes
-library(FactoMineR)   # For FAMD / MCA
-library(factoextra)   # For visualizing results (e.g., scree plots)
-library(cluster)      # For silhouette analysis (pam, daisy)
-library(DescTools)    # For Cramér's V
-library(caret)        # For nearZeroVar (low-variance detection)
-library(openxlsx)     # For writing Excel
+#LIBRARIES
+library(readxl)       
+library(data.table)   
+library(clustMixType) 
+library(FactoMineR)   
+library(factoextra)   
+library(cluster)      
+library(DescTools)    
+library(caret)        
+library(openxlsx)     
 library(dplyr)
 library(tidyr)
 library(stringr)
 library(purrr)
+library(writexl)
+library(reshape2)
+library(ggplot2)
+library(ggpubr)
 
-# ---- Step 1: Read your mapping file ----
-mapping <- read.csv(
-  "C:/Users/mira.leenders/OneDrive - Obasi/Documenten/dataset sheet1.csv",
-  sep = ";",
-  stringsAsFactors = FALSE
-)
 
-# ---- Step 2: Load your main dataset ----
+#MAIN DATASET
 df <- fread(
   "C:/Users/mira.leenders/OneDrive - Obasi/Documenten/R studio/DATASET THESIS.csv",
   stringsAsFactors = FALSE
 )
 
-# ---- Step 3: Fix the gwi-siz-fce prefix and drop unwanted columns ----
+############VOORBEREIDING
+#mapping file 
+mapping <- read.csv(
+  "C:\\Users\\mira.leenders\\OneDrive - Obasi\\Documenten\\Thesis\\dataset sheet1.csv",
+  sep = ";",
+  stringsAsFactors = FALSE
+)
+
+#Fix the gwi-siz-fce prefix and drop unwanted columns
 # Replace "_" with "-" in the prefix
 setnames(
   df,
@@ -34,30 +40,21 @@ setnames(
   new = gsub("^gwi_siz_fce", "gwi-siz-fce", grep("^gwi_siz_fce", names(df), value = TRUE))
 )
 
-# Remove any gwi-siz-fce.q33, q32, q102, weighting or s2 columns
 df <- df[, !grepl("^gwi-siz-fce\\.(q(33|32|102)|weighting|s2)", names(df)), with = FALSE]
 
-# ---- Step 4: Rename columns based on your mapping file ----
-# Build the new_name in your mapping
+#Rename based on mapping
 mapping$new_name <- paste(mapping[[3]], mapping[[5]], sep = "_")
-
-# Create the named vector for renaming
 name_mapping <- setNames(mapping$new_name, mapping[[1]])
-
-# Apply renaming where possible
 setnames(
   df,
   old = intersect(names(name_mapping), names(df)),
   new = name_mapping[ intersect(names(name_mapping), names(df)) ]
 )
 
-# ---- (Optional) Quick sanity check ----
-cat("Mapped columns:", sum(names(df) %in% mapping$new_name), "\n")
-head(names(df), 20)
 
 
 
-###### OPTIONAL---- Step 6: Frequency tables 
+#######OPTIONAL- Frequency tables 
 Freq_select_cols <- grep("^gwi_siz_fce\\.q9b?_", names(df2), value = TRUE)
 
 freq_list <- lapply(Freq_select_cols, function(col) {
@@ -67,34 +64,22 @@ freq_list <- lapply(Freq_select_cols, function(col) {
   tbl
 })
 freq_table <- rbindlist(freq_list)
-# View(freq_table)
+
+
 
 
 #####DEVICES USED EVER####
-
-# Filter columns starting with "devices_used_ever_"
 device_cols <- df %>% 
   select(starts_with("Devices Used Ever_"))
-
-# Create frequency tables for each selected column
 freq_tables <- map(device_cols, ~ table(.x, useNA = "ifany"))
-
-# Print all frequency tables
 freq_tables
-
-# Turn frequency tables into a tidy data frame
 freq_df <- freq_tables %>%
   imap_dfr(~ as.data.frame(.x) %>% 
              rename(Value = .x, Frequency = Freq) %>% 
              mutate(Column = .y))
-
-# View result
 print(freq_df)
 
 
-
-# ---- Step 7: Device‐group reductions ----
-# Define the device groups
 playstation_cols <- c(
   "Devices Used Ever_PlayStation 5",
   "Devices Used Ever_PlayStation 4 Pro",
@@ -122,14 +107,12 @@ mobile_cols <- c(
   "Devices Used Ever_Smartphone"
 )
 
-# Compute counts (use backticks around non‐syntactic names)
 df[, Playstation := rowSums(.SD != "0" & .SD != "", na.rm = TRUE),        .SDcols = playstation_cols]
 df[, Xbox       := rowSums(.SD != "0" & .SD != "", na.rm = TRUE),        .SDcols = xbox_cols]
 df[, Nintendo   := rowSums(.SD != "0" & .SD != "", na.rm = TRUE),        .SDcols = nintendo_cols]
 df[, `PC/Mac`   := rowSums(.SD != "0" & .SD != "", na.rm = TRUE),        .SDcols = pcmac_cols]
 df[, `Mobile devices`               := rowSums(.SD != "0" & .SD != "", na.rm = TRUE), .SDcols = mobile_cols]
 
-# Optionally drop the original detail columns
 cols_to_delete <- c(
   playstation_cols,
   xbox_cols,
@@ -138,86 +121,47 @@ cols_to_delete <- c(
   mobile_cols
 )
 df[, (cols_to_delete) := NULL]
-
 #####END DEVICES USED EVER
 
 
 
-
-
-
-
-
-
-
-
-####################################Games Played in last 12M and Regularly
-
-
-library(data.table)
-setDT(df)  # your main dataset
-
-# Load mapping table
+#####Games Played in last 12M and Regularly
+setDT(df)  
+#mapping table
 map <- fread("C:\\Users\\mira.leenders\\Downloads\\Game_Genre_Mapping.csv")  
-
-# Create a helper function to extract the game name from column names
 extract_game_name <- function(colname) {
   sub(".*_", "", colname)
 }
-
-# Get all game-related columns
 game_cols <- grep("^Games Played (in Last 12 Months|Regularly)", names(df), value = TRUE)
-
-# Build a table mapping columns to genres
 col_map <- data.table(
   original_col = game_cols,
   game = sapply(game_cols, extract_game_name)
 )
-
-# Merge with genre mapping
 col_map <- merge(col_map, map, by.x = "game", by.y = "Game", all.x = TRUE)
 
-# Now split for each question type
 for (qtype in c("Last 12 Months", "Regularly")) {
-  # Subset to only those columns for the current question type
   cols_this_type <- col_map[grepl(qtype, original_col)]
-  
-  # Loop over genres
   for (g in unique(na.omit(cols_this_type$Genre))) {
-    # Get the columns for this genre and type
     genre_cols <- cols_this_type[Genre == g & grepl(qtype, original_col), original_col]
-    
-    # Create the new genre summary column
     new_colname <- paste0(gsub(" ", "_", g), "_", gsub(" ", "_", qtype))
     df[, (new_colname) := rowSums(.SD != "0" & .SD != "", na.rm = TRUE), .SDcols = genre_cols]
   }
 }
-
 View(df[, ..genre_cols])
-# Show all genre columns added
 genre_cols <- grep("_(Last_12_Months|Regularly)$", names(df), value = TRUE)
-df[, ..genre_cols]  # Show them in your console
-
-
-
-
-library(dplyr)
+df[, ..genre_cols]  
 
 names(df) <- make.unique(names(df), sep = "_dup_")
 
-
-# Columns for 'None of these'
 none1 <- "Games Played in Last 12 Months (Part 1 of 2)_None of these"
 none2 <- "Games Played in Last 12 Months (Part 2 of 2)_None of these"
-
-# Add the new column
 df$Games_None_of_these_Both <- ifelse(
   df[[none1]] == "None of these" & df[[none2]] == "None of these",
   "none of these",
   0
 )
 
-# Define the 10 exact column names you want to KEEP
+#games to KEEP
 keep_exact <- c(
   "Games Played in Last 12 Months (Part 1 of 2)_Candy Crush",
   "Games Played in Last 12 Months (Part 1 of 2)_FIFA",
@@ -231,65 +175,31 @@ keep_exact <- c(
   "Games Played in Last 12 Months (Part 2 of 2)_Mortal Kombat"
 )
 
-# Identify all columns starting with "Games Played in Last 12 Months"
 all_game_cols <- grep("^Games Played in Last 12 Months \\(Part [12] of 2\\)_", names(df), value = TRUE)
-
-# Remove all such columns EXCEPT the ones you want to keep
 cols_to_remove <- setdiff(all_game_cols, keep_exact)
-
-# Drop those columns directly from df
 df[, (cols_to_remove) := NULL]
 
 
-
-
-# Define the games you want to KEEP
+#games to KEEP
 keep_games <- c("Call of Duty", "Candy Crush", "FIFA", "Fortnite", "GTA V",
                 "Mario Kart", "Minecraft", "Pokemon", "Roblox", "League of Legends", "None of these")
-
-# Find all columns that start with 'Games Played Regularly_'
 all_regular_cols <- grep("^Games Played Regularly_", names(df), value = TRUE)
-
-# Extract the part after the '_'
 game_names <- sub("^Games Played Regularly_", "", all_regular_cols)
-
-# Find columns to KEEP (match on exact game name)
 keep_cols <- all_regular_cols[game_names %in% keep_games]
-
-# Drop all others
 cols_to_remove <- setdiff(all_regular_cols, keep_cols)
 df[, (cols_to_remove) := NULL]
+#############END- GAMES PLAYED LAST 12 M and RGEULRALRY
 
 
 
-##############################END GAMES PLAYED LAST 12 M and RGEULRALRY
-
-
-
-
-
-
-
-
-##################################Esports Watched Ever
-
-library(data.table)
-library(stringr)
-
-# 1. Load your mapping file
+#############Esports Watched Ever
+#mapping file
 mapping <- fread("C:/Users/mira.leenders/Downloads/Final_Esports_Watched_Ever_Mapping.csv")
-
-# 2. Identify all "Esports Watched Ever_" columns in df
 watched_cols <- grep("^Esports Watched Ever_", names(df), value = TRUE)
-
-# 3. Build a helper table and extract the game title
 watched_dt <- data.table(column = watched_cols)
 watched_dt[, `Original Esport Title` := 
              str_replace(column, "^Esports Watched Ever_", "")
 ]
-
-# 4. Join in the genre mapping
-#    (assumes mapping has columns "Original Esport Title" and "Grouped Genre / Category")
 watched_dt <- merge(
   watched_dt,
   mapping,
@@ -297,63 +207,33 @@ watched_dt <- merge(
   all.x = TRUE
 )
 
-# 5. For each genre, count how many titles each respondent watched ever
 for (g in unique(watched_dt$`Grouped Genre / Category`)) {
-  # all source cols for this genre
   cols_for_genre <- watched_dt[`Grouped Genre / Category` == g, column]
-  
-  # make a syntactic new column name
   safe_genre    <- gsub("[ /]", "_", g)
   new_colname   <- paste0("Watched_Ever_", safe_genre)
-  
-  # add summary column to df
   df[, (new_colname) := rowSums(.SD != "0" & .SD != "", na.rm = TRUE),
      .SDcols = cols_for_genre
   ]
 }
 
-# (Optional) Inspect the new genre‐count columns
 genre_cols <- grep("^Watched_Ever_", names(df), value = TRUE)
 df[, ..genre_cols]
 
-
-
-# Define esports titles to KEEP
+#titles to KEEP
 keep_esports <- c("FIFA", "Fortnite", "Call of Duty", "League of Legends", 
                   "Call Of Duty Warzone", "Mortal Kombat 11", "PUBG", 
                   "Call of Duty Mobile", "League of Legends: Wild Rift", 
                   "Counter-Strike 2 / CS:GO")
-
-# Get all 'Esports Watched Ever_' columns
 all_esports_cols <- grep("^Esports Watched Ever_", names(df), value = TRUE)
-
-# Extract game names after the underscore
 esports_names <- sub("^Esports Watched Ever_", "", all_esports_cols)
-
-# Keep only columns whose game title matches one of your list
 keep_cols <- all_esports_cols[esports_names %in% keep_esports]
-
-# Drop all other Esports Watched Ever_ columns
 cols_to_remove <- setdiff(all_esports_cols, keep_cols)
 df[, (cols_to_remove) := NULL]
-
-
-#####################################ESPORTSWATCHEDEVER
-
+########END-ESPORTSWATCHEDEVER
 
 
 
-
-
-
-
-library(data.table)
-
-# Voorbeeld: je dataset heet df
-# Zorg dat df een data.table is
-df <- as.data.table(df)
-
-# Hernoem exact de kolommen zoals opgegeven
+########WATCHING BEHAVIOR
 setnames(df, old = c(
   "gwi-siz-fce.q24_1",
   "gwi-siz-fce.q24_2",
@@ -420,19 +300,6 @@ setnames(df, old = c(
   "WatchingBehavior_Call_of_Duty"
 ))
 
-
-
-
-
-
-# Laad benodigde libraries
-library(data.table)
-library(dplyr)
-
-# Laad je dataframe
-df <- as.data.table(df)
-
-# Zet hieronder je eigen mapping van titel naar genre
 genre_mapping <- list(
   "Apex_Legends" = "Battle Royale",
   "Arena_of_Valor" = "MOBA",
@@ -467,7 +334,6 @@ genre_mapping <- list(
   "Magic_The_Gathering_Arena" = "Auto Battler / Strategy"
 )
 
-# Definieer categorieën
 low_answers <- c(
   "I won't tune in for any particular tournament, but might watch the occasional game out of interest",
   "I will only watch the finals of the biggest tournaments"
@@ -475,42 +341,28 @@ low_answers <- c(
 
 medium_answers <- c("I only watch the biggest tournaments")
 high_answers <- c("I watch most tournaments I can", "I'll tune into every tournament I can")
-
-# Initialiseer lege kolommen
 df$Watching_Low <- ""
 df$Watching_Medium <- ""
 df$Watching_High <- ""
-
-# Doorloop alle kolommen
 for (col in names(genre_mapping)) {
   full_colname <- paste0("WatchingBehavior_", col)
   genre <- genre_mapping[[col]]
-  
   df$Watching_Low <- ifelse(df[[full_colname]] %in% low_answers,
                             paste(df$Watching_Low, genre, sep = "; "), df$Watching_Low)
-  
   df$Watching_Medium <- ifelse(df[[full_colname]] %in% medium_answers,
                                paste(df$Watching_Medium, genre, sep = "; "), df$Watching_Medium)
-  
   df$Watching_High <- ifelse(df[[full_colname]] %in% high_answers,
                              paste(df$Watching_High, genre, sep = "; "), df$Watching_High)
 }
-
-# Optioneel: trim spaties en beginpuntkomma’s
 df$Watching_Low <- trimws(gsub("^;\\s*", "", df$Watching_Low))
 df$Watching_Medium <- trimws(gsub("^;\\s*", "", df$Watching_Medium))
 df$Watching_High <- trimws(gsub("^;\\s*", "", df$Watching_High))
-
-
-
+########END - WATCHING BEHAVIOR
 
 
 
 ########TEAMSSUPPORTED
-# 1) All supported‐team columns in one vector
 all_supported <- grep("^Esports Team Supported_", names(df), value = TRUE)
-
-# 2) The nine you want to keep
 keep_teams <- c(
   "Esports Team Supported_Cloud9",
   "Esports Team Supported_Excel Esports",
@@ -523,18 +375,12 @@ keep_teams <- c(
   "Esports Team Supported_Infinity", 
   "Esports Team Supported_FaZe Clan"
 )
-
-# 3) Make sure those nine actually exist in your df
 keep_present <- intersect(keep_teams, all_supported)
-
-# 4) Compute total count of *all* teams supported per row
 df[ , total_supported := rowSums(
   .SD != "0" & .SD != "", 
   na.rm = TRUE
 ), .SDcols = all_supported
 ]
-
-# 5) Compute count of just the 9 keep teams per row
 if (length(keep_present) > 0) {
   df[ , keep_count := rowSums(
     .SD != "0" & .SD != "", 
@@ -542,77 +388,31 @@ if (length(keep_present) > 0) {
   ), .SDcols = keep_present
   ]
 } else {
-  # in the unlikely event none of your nine exist
   df[ , keep_count := 0L ]
 }
-
-# 6) Other = total_supported − keep_count
 df[ , Other := total_supported - keep_count ]
-
-# 7) Clean up temporary helpers
 df[ , c("total_supported", "keep_count") := NULL ]
-
-
-
-
-
-
-# Define the exact columns you want to keep
-keep_teams <- c(
-  "Esports Team Supported_Cloud9",
-  "Esports Team Supported_Excel Esports",
-  "Esports Team Supported_Fnatic",
-  "Esports Team Supported_G2 Esports",
-  "Esports Team Supported_PSG",
-  "Esports Team Supported_Red Bull",
-  "Esports Team Supported_T1",
-  "Esports Team Supported_Team Liquid",
-  "Esports Team Supported_Infinity", 
-  "Esports Team Supported_FaZe Clan"
-)
-
-# Find all columns that start with 'Esports Team Supported_'
 all_team_cols <- grep("^Esports Team Supported_", names(df), value = TRUE)
-
-# Identify which ones to remove (all others not in keep_teams)
 cols_to_remove <- setdiff(all_team_cols, keep_teams)
-
-# Remove them safely
 df[, (cols_to_remove) := NULL]
-
-######################################### END ESPORTS TEAM SUPPORTED
-
+####### END - ESPORTS TEAM SUPPORTED
 
 
 
-#######################################NON ESPORTS GAMES 
-# 1) grab the names
+#######NON ESPORTS GAMES 
 watched_cols <- grep(
   "^Non-Esports Games Watched \\(Part [12] of 2\\)_",
   names(df),
   value = TRUE
 )
-
-# 2) print them
 print(watched_cols)
-
-
-library(data.table)
-
-# 1) ensure df is a data.table
-setDT(df)
-
-# 2) load your Non-Esports mapping (has columns Game, Category, Reason)
+# 2)mapping 
 map_ne <- fread("C:\\Users\\mira.leenders\\Downloads\\Full_Non_Esports_Game_Grouping_With_Reasons.csv")
-
-# 3) grab all the watched-game columns (parts 1 & 2)
 watched_cols <- grep(
   "^Non-Esports Games Watched \\(Part [12] of 2\\)_",
   names(df),
   value = TRUE
 )
-
-# 4) build a little lookup: original_col → game → Category
 col_map <- data.table(original_col = watched_cols)
 col_map[, game := sub(".*_", "", original_col)]
 col_map <- merge(
@@ -623,7 +423,6 @@ col_map <- merge(
   all.x = TRUE
 )
 
-# 5) for each non-NA Category, sum up that respondent’s picks
 for(cat in unique(na.omit(col_map$Category))) {
   cols_for_cat <- col_map[Category == cat, original_col]
   # make a clean name for the new column
@@ -633,86 +432,48 @@ for(cat in unique(na.omit(col_map$Category))) {
   df[, (new_col) := rowSums(.SD != "0" & .SD != "", na.rm = TRUE),
      .SDcols = cols_for_cat]
 }
-
-# 6) inspect all the new category columns
 genre_cols <- grep("_Watched$", names(df), value = TRUE)
 head(df[, ..genre_cols])
-
-
-
-
-
-# Define the titles to KEEP
+# to KEEP
 keep_games <- c("FIFA", "Minecraft", "Call of Duty", "Fortnite", "Candy Crush",
                 "Mario Kart", "GTA V", "Pokemon", "Resident Evil", "Mortal Kombat")
-
-# Step 1: Identify all Non-Esports columns
 all_non_esports_cols <- grep("^Non-Esports Games Watched \\(Part [12] of 2\\)_", names(df), value = TRUE)
-
-# Step 2: Extract the game title from each column
 game_titles <- sub("^Non-Esports Games Watched \\(Part [12] of 2\\)_", "", all_non_esports_cols)
-
-# Step 3: Determine which columns to keep
 keep_cols <- all_non_esports_cols[game_titles %in% keep_games]
 
-# Step 4: Find the two 'None of these' columns
 none1 <- grep("^Non-Esports Games Watched \\(Part 1 of 2\\)_None of these", names(df), value = TRUE)
 none2 <- grep("^Non-Esports Games Watched \\(Part 2 of 2\\)_None of these", names(df), value = TRUE)
-
-# Step 5: Add new logical column
 df[, `Non Esports Games_None of these` := ifelse(
   get(none1) == "None of these" & get(none2) == "None of these",
   "None of these", 0
 )]
-
-# Step 6: Drop all other Non-Esports columns except those in `keep_cols`
 cols_to_remove <- setdiff(all_non_esports_cols, keep_cols)
 df[, (cols_to_remove) := NULL]
+#########END - NON ESPORTS GAMES
 
 
 
 
-#######################END NON ESPORTS GAMES
-
-
-
-
-####################"CHANNEL AWARENESS AND CONTENT TYPE WATCHED
-
-
-library(data.table)
-setDT(df)
-
-# 1) Identify source columns
+##########CHANNEL AWARENESS AND CONTENT TYPE WATCHED
 aw_cols   <- grep("^Channel Awareness_", names(df), value=TRUE)
 ct_base   <- sub("^Channel Awareness_", "Content Type Watched on Each Channel_", aw_cols)
 channels  <- sub("^Channel Awareness_", "", aw_cols)
-
-# 2) Loop over channels, but do each entirely vectorized
 for (i in seq_along(channels)) {
   ch      <- channels[i]
-  aw      <- df[[ aw_cols[i] ]]        # logical-ish awareness vector
-  c0      <- df[[ ct_base[i]    ]]     # .   → esports competitions
-  c1      <- df[[ paste0(ct_base[i],".1") ]]  # .1 → non-esports
-  c2      <- df[[ paste0(ct_base[i],".2") ]]  # .2 → not watch
-  
-  # start with empty string
+  aw      <- df[[ aw_cols[i] ]]        
+  c0      <- df[[ ct_base[i]    ]]     
+  c1      <- df[[ paste0(ct_base[i],".1") ]]  
+  c2      <- df[[ paste0(ct_base[i],".2") ]]  
   result <- rep("", nrow(df))
-  
-  # mark awareness
   is_aw <- !aw %in% c("0","",NA)
   result[is_aw] <- "aware"
-  
   if (ch != "None of these") {
-    # append each content-type label
-    # for esports competitions
     idx <- !c0 %in% c("0","",NA)
     result[idx] <- paste0(
       result[idx],
       ifelse(result[idx]=="", "", ", "),
       "watch esports competitions"
     )
-    
     # non-esports gaming
     idx <- !c1 %in% c("0","",NA)
     result[idx] <- paste0(
@@ -720,7 +481,6 @@ for (i in seq_along(channels)) {
       ifelse(result[idx]=="", "", ", "),
       "watch non-esports gaming content"
     )
-    
     # not watch gaming
     idx <- !c2 %in% c("0","",NA)
     result[idx] <- paste0(
@@ -730,243 +490,138 @@ for (i in seq_along(channels)) {
     )
   }
   
-  # assign in one go
   set(df, j = ch, value = result)
 }
-
-
-#############CHANNEL AWARENESS AND CONTENT TYPE WATCHED 
-
+#####END - CHANNEL AWARENESS AND CONTENT TYPE WATCHED 
 
 
 
-######################################ADVERTISING TYPE
-library(data.table)
-setDT(df)
-
-# 1) grab your source cols
+######ADVERTISING TYPE
 rec_cols  <- grep("^Recognition of Esports Advertising Types_", names(df), value=TRUE)
 pref_cols <- grep("^Preference of Esports Advertising Types_",     names(df), value=TRUE)
-
-# 2) extract the ad-type (the bit after the final “_”)
 ad_types  <- sub(".*_", "", rec_cols)
-
-# 3) sanitize into valid column names (e.g. “None of these” → “None_of_these”)
 new_cols  <- gsub("[^A-Za-z0-9]+", "_", ad_types)
-
-# 4) loop over each type
 for (i in seq_along(ad_types)) {
   rec_col <- rec_cols[i]
   pref_col<- pref_cols[i]
   new_col <- new_cols[i]
   type    <- ad_types[i]
-  
-  # logical vectors: did they select this type?
   rec_vec  <- df[[rec_col]]  == type
   pref_vec <- df[[pref_col]] == type
-  
-  # initialize all to empty string
   out <- rep("", nrow(df))
-  
-  # both recognition & preference
   both        <- rec_vec & pref_vec
   out[both]   <- "Recognition, Preference"
-  
-  # only recognition
   only_rec    <- rec_vec & !pref_vec
   out[only_rec] <- "Recognition"
-  
-  # only preference
   only_pref   <- pref_vec & !rec_vec
   out[only_pref] <- "Preference"
-  
-  # assign the new column
   df[, (new_col) := out]
 }
 
-# 5) (optional) drop the 18 originals
 df[, c(rec_cols, pref_cols) := NULL]
-
-# Result: df now has 9 columns named after each ad type,
-# each cell either "", "Recognition", "Preference", or "Recognition, Preference".
-
-
-###################################ADVERTISING TYPE
+######END - ADVERTISING TYPE
 
 
 
-
-#####################"SPONSOR CATEGORIES
-
-# 1) Grab the two sets of source columns
+######SPONSOR CATEGORIES
 exp_cols  <- grep("^Expected Sponsor Categories_", names(df), value = TRUE)
 pref_cols <- grep("^Preference of Sponsor Categories_", names(df), value = TRUE)
-
-# 2) Extract the category names (they’re identical in order)
 categories <- sub("^Expected Sponsor Categories_", "", exp_cols)
-
-# 3) Turn those into “safe” column names (e.g. spaces → underscores)
 safe_names <- gsub("[^A-Za-z0-9]", "_", categories)
 
-# 4) Loop over each category and build the new summary column
 for (i in seq_along(categories)) {
   cat    <- categories[i]
   safe   <- safe_names[i]
   e_col  <- exp_cols[i]
   p_col  <- pref_cols[i]
-  
-  # logicals for each respondent
   e_vec  <- df[[e_col]]  == cat
   p_vec  <- df[[p_col]]  == cat
-  
-  # start with empty
   out <- rep("", nrow(df))
-  
-  # both
   both <- e_vec & p_vec
   out[both] <- "expectation, preference"
-  
-  # only expectation
   only_e <- e_vec & !p_vec
   out[only_e] <- "expectation"
-  
-  # only preference
   only_p <- p_vec & !e_vec
   out[only_p] <- "preference"
-  
-  # assign to df
   set(df, j = safe, value = out)
 }
 
-# 5) (Optional) Drop the original 28 columns
 df[, c(exp_cols, pref_cols) := NULL]
-
-# 6) Quick sanity check
 head(df[, safe_names, with = FALSE])
-###########################################SPONSOR CATEGORIES
-
+######END - SPONSOR CATEGORIES
 
 
 
 ##########################MERCH
-library(data.table)
-
-# Ensure df is a data.table
-setDT(df)
-
-# 1. Get all relevant columns
 all_cols <- grep("^Merchandise Purchase History / Intention_", names(df), value = TRUE)
-
-# 2. Get unique base labels by stripping _dup_ suffixes
 base_labels <- unique(sub("_dup_\\d+$", "", all_cols))
-
-# 3. Create safe new column names
 summary_names <- sub("^Merchandise Purchase History / Intention_", "", base_labels)
 summary_names <- gsub("[^A-Za-z0-9]", "_", summary_names)
 
-# 4. Loop over base labels to build new columns
 for (i in seq_along(base_labels)) {
   base <- base_labels[i]
   new_col <- summary_names[i]
   out <- rep("", nrow(df))
-  
-  # Column variants
   purchased_col  <- base
   interested_col <- paste0(base, "_dup_1")
   neither_col    <- paste0(base, "_dup_2")
-  
-  # Fill values if present
   if (purchased_col %in% names(df)) {
     idx <- df[[purchased_col]] != "0" & df[[purchased_col]] != ""
     out[idx] <- "has purchased this"
   }
-  
   if (interested_col %in% names(df)) {
     idx <- df[[interested_col]] != "0" & df[[interested_col]] != ""
     out[idx] <- ifelse(out[idx] == "", "interested in purchasing in future",
                        paste(out[idx], "interested in purchasing in future", sep = ", "))
   }
-  
   if (neither_col %in% names(df)) {
     idx <- df[[neither_col]] != "0" & df[[neither_col]] != ""
     out[idx] <- ifelse(out[idx] == "", "neither of these",
                        paste(out[idx], "neither of these", sep = ", "))
   }
-  
-  # Save the new summary column
   df[[new_col]] <- out
 }
 
-# Optional: check results
 head(df[, ..summary_names])
-
-
-#####################################END MERCH
-
+#######END - MERCH
 
 
 
-
-
-
-
-
-
-
-
-
-#################################PC BRANDS
-# Brand Awareness columns
+#######PC BRANDS
 awareness_cols <- grep("^PC Brand Awareness_", names(df), value = TRUE)
 
-# Brand Ownership columns
 ownership_cols <- grep("^PC Brand Ownership_", names(df), value = TRUE)
 
-# Brands Best Suited to Gaming columns
 best_suited_cols <- grep("^Brands Best Suited to Gaming_", names(df), value = TRUE)
 
-# Print them
 print(awareness_cols)
 print(ownership_cols)
 print(best_suited_cols)
 
-
-
-# 1) Your three vectors (you already have these)
 awareness_cols     <- print(awareness_cols)
 ownership_cols     <- print(ownership_cols)
 best_suited_cols   <- print(best_suited_cols)
 
-# 2) Extract just the brand name (strip the prefix)
 aw_brands   <- sub("^PC Brand Awareness_",            "", awareness_cols)
 own_brands  <- sub("^PC Brand Ownership_",            "", ownership_cols)
 best_brands <- sub("^Brands Best Suited to Gaming_",  "", best_suited_cols)
 
-# 3) If some have trailing punctuation (e.g. the "." on "None of these."), remove it
 aw_brands   <- gsub("\\.$", "", aw_brands)
 own_brands  <- gsub("\\.$", "", own_brands)
 best_brands <- gsub("\\.$", "", best_brands)
 
-# 4) Check if they’re all the same set
 cat("Aw vs Own identical? ", setequal(aw_brands, own_brands), "\n")
 cat("Aw vs Best identical? ", setequal(aw_brands, best_brands), "\n")
 cat("Own vs Best identical? ", setequal(own_brands, best_brands), "\n")
 
-# 5) If any of those are FALSE, see what differs
 cat("In Awareness but not Ownership:\n")
 print(setdiff(aw_brands, own_brands))
-
 cat("In Ownership but not Awareness:\n")
 print(setdiff(own_brands, aw_brands))
-
 cat("In Awareness but not Best:\n")
 print(setdiff(aw_brands, best_brands))
-
 cat("In Best but not Awareness:\n")
 print(setdiff(best_brands, aw_brands))
-
-
-
 
 Freq_select_cols <- grep("^Peripheral Brand Awareness_", names(df), value = TRUE)
 freq_list <- lapply(Freq_select_cols, function(col) {
@@ -976,12 +631,7 @@ freq_list <- lapply(Freq_select_cols, function(col) {
   tbl
 })
 freq_table <- rbindlist(freq_list)
-# View(freq_table)
 
-
-library(data.table)
-
-# 1) Define your group → brand mapping
 brand_groups <- list(
   `Major Global PC Brands`              = c("Dell","hp","Lenovo", "Medion", "Toshiba","Acer","Apple (Mac)","Apple", "Samsung","Fujitsu", "ASUS"),
   `Gaming-Focused Brands`       = c("MSI", "ROG - Republic of Gamers", "Legion", "NZXT", "Alienware", "Corsair", "Razer", "AORUS", "OMEN", "CyberPowerPC", "SCAN", "Predator", "Xidax", "Origin", "LDLC", "Galleria", "iBuyPower", "Velocity Micro", "Alternate", "XMG", "Origin PC", "Falcon Northwest", "Maingear", "Velocity", "PCSpecialist", "Schenker", "Digital Storm", "Materiel.net", "King Mod Systems", "Millenium"),
@@ -990,137 +640,99 @@ brand_groups <- list(
   `None of these`           = c("None of these")
 )
 
-# 2) Grab the three blocks of columns
 aw_cols   <- grep("^PC Brand Awareness_",            names(df), value=TRUE)
 own_cols  <- grep("^PC Brand Ownership_",            names(df), value=TRUE)
 best_cols <- grep("^Brands Best Suited to Gaming_",  names(df), value=TRUE)
 
-# 3) Extract clean brand names
 aw_brands   <- gsub("\\.$","", sub("^PC Brand Awareness_",           "", aw_cols))
 own_brands  <- gsub("\\.$","", sub("^PC Brand Ownership_",           "", own_cols))
 best_brands <- gsub("\\.$","", sub("^Brands Best Suited to Gaming_", "", best_cols))
 
-# 4) For each group, build the summary column
-setDT(df)
 for (grp in names(brand_groups)) {
-  # safe R column name
+  
   safe_grp <- gsub("[^A-Za-z0-9]+","_", grp)
   members  <- brand_groups[[grp]]
   
-  # find which original cols belong here
   aw_match   <- aw_cols[   aw_brands   %in% members ]
   own_match  <- own_cols[  own_brands  %in% members ]
   best_match <- best_cols[ best_brands %in% members ]
-  
-  # initialize output vector
+
   out <- rep("", nrow(df))
-  
-  # any awareness?
+
   if (length(aw_match)) {
     idx <- rowSums(df[, ..aw_match] != "0" & df[, ..aw_match] != "", na.rm=TRUE) > 0
     out[idx] <- "aware"
   }
-  
-  # any ownership?
+
   if (length(own_match)) {
     idx <- rowSums(df[, ..own_match] != "0" & df[, ..own_match] != "", na.rm=TRUE) > 0
     out[idx] <- ifelse(out[idx]=="", "owner", paste(out[idx],"owner", sep=", "))
   }
   
-  # any best-suited?
   if (length(best_match)) {
     idx <- rowSums(df[, ..best_match] != "0" & df[, ..best_match] != "", na.rm=TRUE) > 0
     out[idx] <- ifelse(out[idx]=="", "best suited", paste(out[idx],"best suited", sep=", "))
   }
   
-  # assign
   df[, (safe_grp) := out]
 }
 
-# 5) Inspect your new 8 columns
 df[, gsub("[^A-Za-z0-9]+","_", names(brand_groups)), with=FALSE]
 
-
-
-library(data.table)
-
-# Make sure df is a data.table
-setDT(df)
-
-# Define the 14 target brands (note: exact text from column names)
+# 14 target brands
 brands <- c("Acer", "Apple (Mac)", "Samsung", "Lenovo", "Dell", "ASUS", 
             "Apple", "Self-built", "Alienware", "hp", "Toshiba", "Fujitsu", 
             "MSI", "Razer")
 
-# Get the original columns
 aw_cols   <- grep("^PC Brand Awareness_",            names(df), value=TRUE)
 own_cols  <- grep("^PC Brand Ownership_",            names(df), value=TRUE)
 best_cols <- grep("^Brands Best Suited to Gaming_",  names(df), value=TRUE)
 
-# Extract the brand names (after the prefix)
 aw_brands   <- sub("^PC Brand Awareness_", "", aw_cols)
 own_brands  <- sub("^PC Brand Ownership_", "", own_cols)
 best_brands <- sub("^Brands Best Suited to Gaming_", "", best_cols)
 
-# Loop through each brand
 for (brand in brands) {
   # Column-safe brand name
   col_name <- gsub("[^A-Za-z0-9]+", "_", brand)
   
-  # Find matching columns
   aw_col   <- aw_cols[aw_brands == brand]
   own_col  <- own_cols[own_brands == brand]
   best_col <- best_cols[best_brands == brand]
   
-  # Initialize empty output
   out <- rep("", nrow(df))
   
-  # Aware
   if (length(aw_col) == 1) {
     idx <- df[[aw_col]] != "0" & df[[aw_col]] != ""
     out[idx] <- "aware"
   }
-  
-  # Owner
+
   if (length(own_col) == 1) {
     idx <- df[[own_col]] != "0" & df[[own_col]] != ""
     out[idx] <- ifelse(out[idx] == "", "owner", paste(out[idx], "owner", sep = ", "))
   }
   
-  # Best suited
   if (length(best_col) == 1) {
     idx <- df[[best_col]] != "0" & df[[best_col]] != ""
     out[idx] <- ifelse(out[idx] == "", "best suited", paste(out[idx], "best suited", sep = ", "))
   }
   
-  # Assign the new column
   df[[col_name]] <- out
 }
 
-# ✅ Optional: show the new columns
 new_cols <- gsub("[^A-Za-z0-9]+", "_", brands)
 head(df[, ..new_cols])
-
-####################################END PC BRANDS 
-
+#######END PC BRANDS 
 
 
 
-
-##########################COMPONENT BRAND
-
-# Base R approach
+#######COMPONENT BRAND
 periph_cols   <- grep("^Peripheral Brand Awareness_", names(df), value = TRUE)
 component_cols<- grep("^Component Brand Awareness_",  names(df), value = TRUE)
-
 print(periph_cols)
 print(component_cols)
 
-
-
-
-
-# 1) Define your group → brand mapping
+#brand mapping
 component_groups <- list(
   `CPU & Motherboards` = c("Intel", "AMD", "ASUS", "MSI", "Gigabyte", "ASRock", "EVGA"),
   `GPU Brands` = c("NVIDIA", "AMD", "MSI", "ASUS", "Gigabyte", "EVGA", "Palit", "PowerColor", 
@@ -1138,71 +750,37 @@ component_groups <- list(
   `Controllers & Interfaces` = c("Adaptec", "3Ware", "Promise Technology"),
   `Other / Networking` = c("Cisco", "None of these")
 )
-
-
-# 2) Grab all your Component Brand Awareness columns
 comp_cols   <- grep("^Component Brand Awareness_", names(df), value=TRUE)
-
-# 3) Extract the raw brand labels
 comp_brands <- sub("^Component Brand Awareness_", "", comp_cols)
 comp_brands <- gsub("\\.$", "", comp_brands)
 
-# 4) For each group, count how many of its brands each respondent is aware of
 for (grp in names(component_groups)) {
   members <- component_groups[[grp]]
   cols    <- comp_cols[comp_brands %in% members]
   newcol  <- grp
   
   if (length(cols)) {
-    # rowSums of non-"0"/non-blank → count how many brands in this group they ticked
     df[, (newcol) := rowSums(.SD != "0" & .SD != "", na.rm=TRUE), .SDcols = cols]
   } else {
-    # if your mapping had a group with no matching columns, fill zeros
+
     df[, (newcol) := 0L]
   }
 }
 
-# 5) Inspect your new 10 columns
 df[, names(component_groups), with=FALSE]
 
-
-
-library(data.table)
-
-# Zorg dat df een data.table is
-setDT(df)
-
-# Define de merken die je wilt behouden
 keep_brands <- c("Seagate", "MSI", "Gigabyte", "Kingston", "AMD", 
                  "NVIDIA", "Toshiba", "Samsung", "ASUS", "Intel")
-
-# Alle kolommen die beginnen met "Component Brand Awareness_"
 all_aw_cols <- grep("^Component Brand Awareness_", names(df), value = TRUE)
-
-# Extract de merknamen (na de '_')
 brand_names <- sub("^Component Brand Awareness_", "", all_aw_cols)
-
-# Selecteer de kolommen die eindigen op de juiste merken
 keep_cols <- all_aw_cols[brand_names %in% keep_brands]
-
-# Bepaal welke kolommen je wil verwijderen
 drop_cols <- setdiff(all_aw_cols, keep_cols)
-
-# Verwijder de overige kolommen
 df[, (drop_cols) := NULL]
+#######END COMPONENT BRANDS 
 
 
 
-
-
-
-
-
-
-
-######################"PERIPHERAL BRANDS 
-
-# 1) Define your 9 peripheral‐brand groups
+#######PERIPHERAL BRANDS
 periph_groups <- list(
   `General PC Brands` = c(
     "ASUS", "Gigabyte", "HP", "MSI", "Acer", "Dell", "Lenovo", "Samsung", "MSI"
@@ -1241,89 +819,40 @@ periph_groups <- list(
   `None / Other` = c("None of these")
 )
 
-
-# 2) Grab all Peripheral Brand Awareness columns
 aw_cols   <- grep("^Peripheral Brand Awareness_", names(df), value=TRUE)
-
-# 3) Extract just the brand labels
 aw_brands <- sub("^Peripheral Brand Awareness_", "", aw_cols)
 aw_brands <- gsub("\\.$","", aw_brands)  # remove any trailing “.”
-
-# 4) For each group, count how many of its brands each respondent is aware of
 for (grp in names(periph_groups)) {
   members <- periph_groups[[grp]]
   cols    <- aw_cols[aw_brands %in% members]
   newcol  <- grp
   
   if (length(cols) > 0) {
-    # Count non‐"0" / non‐empty entries in those columns
+
     df[, (newcol) := rowSums(.SD != "0" & .SD != "", na.rm=TRUE), .SDcols = cols]
   } else {
-    # If no columns matched, fill with zeros
+  
     df[, (newcol) := 0L]
   }
 }
 
-# 5) Inspect the 9 new summary columns
 df[, names(periph_groups), with=FALSE]
 
-
-
-
-
-library(data.table)
-
-# Make sure df is a data.table
-setDT(df)
-
-# Define the brand names you want to keep
 keep_brands <- c("Bose", "Razer", "Samsung", "Logitech G", "Logitech", 
                  "HP", "Dell", "Acer", "ASUS", "Lenovo")
-
-# Find all Peripheral Brand Awareness_ columns
 all_periph_cols <- grep("^Peripheral Brand Awareness_", names(df), value = TRUE)
-
-# Extract the brand names from the column names
 brand_names <- sub("^Peripheral Brand Awareness_", "", all_periph_cols)
-
-# Select only columns that match the brands you want
 keep_cols <- all_periph_cols[brand_names %in% keep_brands]
-
-# Identify columns to remove
 drop_cols <- setdiff(all_periph_cols, keep_cols)
-
-# Drop them
 df[, (drop_cols) := NULL]
-
-
-############################ENDPERIPHERAL BRANDS
-
+####END - PERIPHERAL BRANDS
 
 
 
-
-
-
-
-
-
-
-
-
-
-
+####CONFIDENCE IN BRANDS
 component_cols<- grep("^gwi-siz-fce.q65_",  names(df), value = TRUE)
-
 print(component_cols)
-
-
-
-library(data.table)
-setDT(df)
-library(data.table)
-setDT(df)
-
-# Mapping: q65 column ID → Brand
+# Mapping
 brand_map <- list(
   "Acer" = 1, "Alienware" = 2, "AORUS" = 3, "Astro" = 4, "ASUS" = 5, "Bose" = 6,
   "Circle Gaming" = 7, "Cooler Master" = 8, "Corsair" = 9, "Cosmic Byte" = 10,
@@ -1350,7 +879,7 @@ brand_map <- list(
   "Colorful" = 105, "Cisco" = 106
 )
 
-# Grouping: brand name → category
+# Grouping
 group_map <- list(
   `General PC & Peripherals` = c("Acer","ASUS","Dell","Gigabyte","HP","Lenovo","MSI","Samsung"),
   `Gaming Sub-brands` = c("Alienware","AORUS","Legion","OMEN","Predator","ROG - Republic of Gamers"),
@@ -1374,46 +903,32 @@ group_map <- list(
   `Unknown / Other` = c("Das Keyboard","Dornfinger")
 )
 
-# Flatten to brand → group
 brand_to_group <- data.table(
   brand = unlist(group_map),
   group = rep(names(group_map), lengths(group_map))
 )
 
-# Convert brand_map to ID → brand
 id_to_brand <- data.table(
   id = unlist(brand_map),
   brand = rep(names(brand_map), lengths(brand_map))
 )
 
-# Join brand → group
 id_to_group <- merge(id_to_brand, brand_to_group, by = "brand", all.x = TRUE)
+print(id_to_group[is.na(group)])
 
-# View missing group assignments if any
-print(id_to_group[is.na(group)])  # should be empty
-
-
-# Get all column names matching q65_ followed by a number
-q65_cols <- grep("^q65_[0-9]+$", names(df), value = TRUE)
-
-# Extract numeric suffix (e.g., from q65_60 get 60) to map to brand IDs
+q65_cols <- grep("^gwi-siz-fce\\.q65_[0-9]+$", names(df), value = TRUE)
+cat("Number of matched q65 columns: ", length(q65_cols), "\n")
+print(q65_cols[1:5])  # just to check
 q65_ids <- as.integer(sub(".*q65_([0-9]+)$", "\\1", q65_cols))
-
-# Standardize input: remove whitespace and convert to lowercase (so "Confident" → "confident")
 df[ , (q65_cols) := lapply(.SD, function(x) {
   xx <- trimws(as.character(x))
   tolower(xx)
 }), .SDcols = q65_cols ]
-
-
-# Define all valid confidence levels to summarize
 levels <- c("very unconfident", "unconfident", "neutral", "confident", "very confident")
+component_groups <- split(id_to_group$id, id_to_group$group)
 
-# Loop over each confidence level
 for (lvl in levels) {
   newcol <- lvl
-  
-  # Count how many times each group received this confidence level
   count_dt <- lapply(component_groups, function(idxs) {
     cols <- q65_cols[q65_ids %in% idxs]
     if (length(cols)) {
@@ -1423,62 +938,49 @@ for (lvl in levels) {
     }
   })
   count_dt <- as.data.table(count_dt)
-  
-  # Collapse results into string like "GPU_Chipsets: 1, Motherboards: 2"
+
   summary_vec <- apply(count_dt, 1, function(r) {
     nz <- which(r > 0)
     if (!length(nz)) return(NA_character_)
     paste0(names(r)[nz], ":", r[nz], collapse = ", ")
   })
-  
-  # Save result in new column (e.g., "confident", "neutral", etc.)
   df[, (newcol) := summary_vec]
 }
 
-
-# Show the 5 new summary columns
 df[, levels, with = FALSE]
+confidence_cols <- c("very confident", "confident", "neutral", "unconfident", "very unconfident")
+
+for (col in confidence_cols) {
+  cat("\nUnique values in column:", col, "\n")
+  print(unique(df[[col]]))
+}
+#####END - CONFIDENCE IN BRANDS
 
 
 
-
-
-
-
-
-########################CONSUMPTION
-
-
-
-# 1) Deduplicate your original columns
+######CONSUMPTION
 names(df) <- make.unique(names(df), sep=".")
 
-# 2) Grab the now‐unique names
 cons_cols  <- grep("^Consumption Habits During Gaming", names(df), value=TRUE)
 food_cols  <- grep("^Food Categories During Gaming",       names(df), value=TRUE)
 drink_cols <- grep("^Drink Categories During Gaming",      names(df), value=TRUE)
 
-# 3) Context labels in the order your columns appear
 contexts <- c("while playing", "while waiting", "while watching")
 
-# 4) The 16 behaviors / categories
 beh_cons  <- c("Eat_food", "Drink_soft_drinks", "Drink_alcohol", "None_of_these")
 beh_food  <- c("Snacks", "Sweets_Candy", "Healthy_snacks", "Full_home_cooked_meals",
                "Takeaways_Home_delivery", "Other_foods")
 beh_drink <- c("Energy_drinks", "Soda_Fizzy_drinks", "Water_Flavoured_water",
                "Juices", "Hot_drinks", "Other_drinks")
 
-# 5) A-by-reference helper to build the summaries
 make_summary <- function(df, cols_block, behaviors) {
   n_beh <- length(behaviors)
   stopifnot(length(cols_block) == n_beh * length(contexts))
   
   for (i in seq_len(n_beh)) {
     beh <- behaviors[i]
-    # start with an empty character vector
     out <- character(nrow(df))
     
-    # for each context
     for (j in seq_along(contexts)) {
       ctx <- contexts[j]
       col <- cols_block[(j-1)*n_beh + i]
@@ -1489,35 +991,22 @@ make_summary <- function(df, cols_block, behaviors) {
     }
     
     out[out==""] <- NA_character_
-    # **here** assign by reference
     df[ , (beh) := out ]
   }
 }
 
-# 6) Build the 4 consumption‐habits summaries
 make_summary(df, cons_cols,  beh_cons)
-
-# 7) Build the 6 food‐category summaries
 make_summary(df, food_cols,  beh_food)
-
-# 8) Build the 6 drink‐category summaries
 make_summary(df, drink_cols, beh_drink)
-
-# 9) Verify your 16 new columns exist and hold strings like "while playing, while waiting"
 new_cols <- c(beh_cons, beh_food, beh_drink)
 df[ , ..new_cols ]
+######END Consumption
 
 
-#################################END Consumption
 
-
-###############################BETTING
-
-# 1) Find the raw column names
+######BETTING
 bet_cols <- grep("^Categories Betted On_", names(df), value=TRUE)
 reg_cols <- grep("^Categories Regularly Betted On_", names(df), value=TRUE)
-
-# 2) Define your six categories and a safe new‐column name
 categories <- c(
   "Esports",
   "Sports",
@@ -1535,12 +1024,9 @@ new_names <- c(
   "None_of_these"
 )
 
-# 3) Loop over each category
 for (i in seq_along(categories)) {
   cat_label <- categories[i]
   new_col   <- new_names[i]
-  
-  # find the exact columns (they exist once in bet_cols, once in reg_cols)
   bet_col <- grep(paste0("^Categories Betted On_", 
                          gsub("\\(", "\\\\(", cat_label),
                          "$"),
@@ -1550,20 +1036,16 @@ for (i in seq_along(categories)) {
                          gsub("\\(", "\\\\(", cat_label),
                          "\\.?$"),
                   reg_cols, value=TRUE)
-  
-  # safety: if reg_col doesn’t exist (only for “Other”), treat as always FALSE
+ 
   has_reg <- length(reg_col)==1
-  
-  # 4) Create the summary by reference
+ 
   df[ , (new_col) := {
-    # logical vectors for bet / reg
     b <- !is.na(get(bet_col)) & get(bet_col) != "0" & get(bet_col) != ""
     if (has_reg) {
       r <- !is.na(get(reg_col)) & get(reg_col) != "0" & get(reg_col) != ""
     } else {
       r <- rep(FALSE, .N)
     }
-    # build the text outcome
     out <- rep(NA_character_, .N)
     out[b & r]   <- "betted on, regularly betted on"
     out[b &!r]   <- "betted on"
@@ -1571,34 +1053,12 @@ for (i in seq_along(categories)) {
     out
   }]
 }
-
-# 5) Quick peek
 df[ , .SD, .SDcols=new_names ]
-
-
-
-
-
-
-
-
 component_cols<- grep("^Esports Title Betting Preferences_",  names(df), value = TRUE)
-
 print(component_cols)
 
-
-
-
-
-library(data.table)
-
-# 1) Load the same mapping you used for “Watched Ever”
 mapping <- fread("C:/Users/mira.leenders/Downloads/Final_Esports_Watched_Ever_Mapping.csv")
-
-# 2) Grab all your “Esports Title Betting Preferences_…” columns
 pref_cols <- grep("^Esports Title Betting Preferences_", names(df), value = TRUE)
-
-# 3) Build a small helper table to extract the title after the underscore
 pref_dt <- data.table(column = pref_cols)
 pref_dt[, Original_Esport_Title := sub(
   "^Esports Title Betting Preferences_",
@@ -1606,8 +1066,6 @@ pref_dt[, Original_Esport_Title := sub(
   column
 )]
 
-# 4) Join in the grouping from your mapping file
-#    (mapping must have columns “Original Esport Title” and “Grouped Genre / Category”)
 setnames(mapping,
          old = "Original Esport Title",
          new = "Original_Esport_Title")
@@ -1618,103 +1076,50 @@ pref_dt <- merge(pref_dt,
                  mapping[, .(Original_Esport_Title, Genre)],
                  by = "Original_Esport_Title",
                  all.x = TRUE)
-
-# 5) For each group, count how many titles in that group the respondent indicated
 for (g in unique(pref_dt$Genre)) {
-  # 5a) All columns belonging to this group
+
   cols_for_group <- pref_dt[Genre == g, column]
-  # 5b) Make a safe name (underscores instead of spaces/slashes)
   safe_name <- gsub("[ /]", "_", g)
   new_col   <- paste0("BettingPref_", safe_name)
-  
-  # 5c) Add the summary column: a simple row‐sum of non‐zero, non‐blank picks
+
   df[ , (new_col) := rowSums(
     .SD != "0" & .SD != "",
     na.rm = TRUE
   ), .SDcols = cols_for_group ]
 }
 
-# 6) Inspect your new columns
 new_cols <- grep("^BettingPref_", names(df), value = TRUE)
 df[ , ..new_cols ]
 
-
-Freq_select_cols <- grep("^Team Awareness_", names(df), value = TRUE)
-freq_list <- lapply(Freq_select_cols, function(col) {
-  tbl <- as.data.frame(table(df[[col]], useNA = "ifany"))
-  names(tbl) <- c("Value", "Frequency")
-  tbl$Column <- col
-  tbl
-})
-freq_table <- rbindlist(freq_list)
-# View(freq_table)
-
-
-
-
-
-library(data.table)
-
-# Make sure df is a data.table
-setDT(df)
-
-# Titles you want to keep (case-sensitive exact matches)
 keep_titles <- c("Mortal Kombat 11", "Call Of Duty Warzone", "PUBG", "Dota2",
                  "League of Legends: Wild Rift", "Call of Duty Mobile",
                  "League of Legends", "Portnite", "Call of Duty", "FIFA")
 
-# Find all relevant columns
 all_bet_cols <- grep("^Esports Title Betting Preferences_", names(df), value = TRUE)
-
-# Extract title part (after the last underscore)
 titles <- sub("^Esports Title Betting Preferences_", "", all_bet_cols)
-
-# Get matching column names
 keep_cols <- all_bet_cols[titles %in% keep_titles]
-
-# Drop all others
 drop_cols <- setdiff(all_bet_cols, keep_cols)
 df[, (drop_cols) := NULL]
-
-
-##############################END OF BETTING
-
+######END OF BETTING
 
 
 
-
-
+#####TEAM AWARENESS
 component_cols<- grep("^Team Awareness_",  names(df), value = TRUE)
-
 print(component_cols)
-
-# 1) Identify your Team Awareness columns
 team_cols <- grep("^Team Awareness_", names(df), value = TRUE)
 
-# 2) For each column, tabulate its values
 freq_list <- lapply(team_cols, function(col) {
-  # compute frequencies, including NA
   dt <- df[, .(Frequency = .N), by = .(Value = get(col))]
   dt[, Column := col]
   setcolorder(dt, c("Column","Value","Frequency"))
   dt
 })
 
-# 3) Stack them back together
 freq_table <- rbindlist(freq_list)
-
-# 4) Inspect or export
 print(freq_table)
-# fwrite(freq_table, "team_awareness_frequencies.csv")
 
-
-
-
-
-# 1) All your “Team Awareness_…” columns
 team_cols <- grep("^Team Awareness_", names(df), value = TRUE)
-
-# 2) Which ones *not* to group as “other”
 keep <- c(
   "Team Awareness_Alliance",
   "Team Awareness_Cloud9",  
@@ -1723,22 +1128,14 @@ keep <- c(
   "Team Awareness_PSG",            "Team Awareness_Red Bull",
   "Team Awareness_Team Liquid",  "Team Awareness_Team Vitality",  "Team Awareness_None of these"
 )
-
-# 3) Everything else is “other”
 other_cols <- setdiff(team_cols, keep)
-
-# 4) Count per‐row how many “other” teams they’re aware of
 df[ , other_awareness := rowSums(
   .SD != "0" & .SD != "",
   na.rm = TRUE
 ), .SDcols = other_cols
 ]
 
-# Quick sanity check
 df[ , .(other_awareness)][ , summary(other_awareness) ]
-
-
-# Define the ones you want to keep
 keep <- c(
   "Team Awareness_Alliance",
   "Team Awareness_Cloud9",  
@@ -1749,32 +1146,16 @@ keep <- c(
   "Team Awareness_None of these"
 )
 
-# Identify all columns starting with "Team Awareness_"
 all_team_cols <- grep("^Team Awareness_", names(df), value = TRUE)
-
-# Identify which ones to drop (all minus keepers)
 cols_to_drop <- setdiff(all_team_cols, keep)
-
-# Remove them
 df[, (cols_to_drop) := NULL]
+#####END - TEAM AWARENESS
 
 
 
-
-
-
-
-
-
-
-
-
-###########################################ESPORTS TOURNAMENTS
+######ESPORTS TOURNAMENTS
 component_cols<- grep("^Specific Esports Tournaments Watched_",  names(df), value = TRUE)
-
 print(component_cols)
-
-
 
 Freq_select_cols <- grep("^Specific Esports Tournaments Watched_", names(df), value = TRUE)
 freq_list <- lapply(Freq_select_cols, function(col) {
@@ -1784,92 +1165,50 @@ freq_list <- lapply(Freq_select_cols, function(col) {
   tbl
 })
 freq_table <- rbindlist(freq_list)
-# View(freq_table)
 
-
-library(data.table)
-library(readxl)
-
-# 1. Laad je originele dataframe
-# df <- fread("pad/naar/jouw/data.csv") # of hoe jij het ook inleest
-df <- as.data.table(df)  # zorg dat df een data.table is
-
-# 2. Mappingbestand inlezen
 mapping <- read_excel("C:/Users/mira.leenders/Downloads/Esports_Tournament_Grouping_FILLED_CORRECT.xlsx")
 mapping <- as.data.table(mapping)
-
-# 3. Maak een helperdata.table met toernooikolommen in df
 tourn_cols <- grep("^Specific Esports Tournaments Watched_", names(df), value = TRUE)
 tourn_dt <- data.table(column = tourn_cols)
-
-# 4. Voeg mapping toe op basis van de kolomnamen
 setnames(mapping, old = "Esports Tournament Column Name", new = "column")
 tourn_dt <- merge(tourn_dt, mapping, by = "column", all.x = TRUE)
 
-# 5. Voor elke groep: maak een nieuwe kolom in df met het aantal bekeken toernooien uit die groep
 for (g in unique(tourn_dt$`Grouped Category`)) {
   group_cols <- tourn_dt[`Grouped Category` == g, column]
-  
-  # Maak veilige kolomnaam (spaties en speciale tekens → underscores)
+
   safe_group_name <- gsub("[^A-Za-z0-9]", "_", g)
   new_col <- paste0("Watched_", safe_group_name)
-  
-  # Voeg kolom toe aan df
+
   df[[new_col]] <- rowSums(
     as.data.frame(lapply(df[, ..group_cols], function(x) x != "0" & x != "" & !is.na(x))),
     na.rm = TRUE
   )
 }
 
-# 6. Optioneel: print een voorbeeld
 watched_group_cols <- grep("^Watched_", names(df), value = TRUE)
 print(df[, ..watched_group_cols])
 
 
-
-
-
-
-
-
-
-
-library(data.table)
-library(readxl)
-
-# 1. Zorg dat je originele dataframe beschikbaar is
-# Bijvoorbeeld: df <- fread("path/to/your/data.csv")
-df <- as.data.table(df)  # zorg dat df een data.table is
-
-# 2. Lees het mappingbestand in (pas pad aan!)
 mapping <- read_excel("C:/Users/mira.leenders/Downloads/Esports_Tournament_Grouping_STRUCTURE_BASED.xlsx")
 mapping <- as.data.table(mapping)
 
-# 3. Vind alle kolommen over bekeken toernooien
 tourn_cols <- grep("^Specific Esports Tournaments Watched_", names(df), value = TRUE)
 
-# 4. Maak helper-tabel met kolomnamen
 tourn_dt <- data.table(column = tourn_cols)
-
-# 5. Merge mapping in op basis van kolomnamen
 setnames(mapping, old = "Esports Tournament Column Name", new = "column")
 tourn_dt <- merge(tourn_dt, mapping, by = "column", all.x = TRUE)
 
-# 6. Voor elke structure-based groep: maak een nieuwe kolom met het aantal bekeken toernooien
 for (g in unique(tourn_dt$`Structure-Based Grouping`)) {
   group_cols <- tourn_dt[`Structure-Based Grouping` == g, column]
-  
-  # Veilige kolomnaam genereren
+
   safe_group_name <- gsub("[^A-Za-z0-9]", "_", g)
   new_col <- paste0("Watched_", safe_group_name)
-  
-  # Voeg kolom toe aan df
+
   df[[new_col]] <- rowSums(
     as.data.frame(lapply(df[, ..group_cols], function(x) x != "0" & x != "" & !is.na(x))),
     na.rm = TRUE
   )
 }
-
 
 keep_tournaments <- c(
   "FIFAe World Cup 2023",
@@ -1884,51 +1223,20 @@ keep_tournaments <- c(
   "Gamers8 2023",
   "None of these"
 )
-library(data.table)
 
-# Zorg dat df een data.table is
-setDT(df)
-
-# Definieer alle kolommen die starten met het juiste patroon
 all_tournament_cols <- grep("^Specific Esports Tournaments Watched_", names(df), value = TRUE)
-
-# Extract het deel na de underscore
 tournament_names <- sub("^Specific Esports Tournaments Watched_", "", all_tournament_cols)
-
-# Selecteer de kolommen die overeenkomen met de opgegeven toernooien
 keep_cols <- all_tournament_cols[tournament_names %in% keep_tournaments]
-
-# Bepaal welke kolommen verwijderd moeten worden
 drop_cols <- setdiff(all_tournament_cols, keep_cols)
-
-# Verwijder de ongewenste kolommen
 df[, (drop_cols) := NULL]
+######END - ESPORTS TOURNAMENTS
 
 
 
-
-##############################ESPORTS TOURNAMENTS
-
-
-
-
-
-
-
-
-
-
-################################REASONS FOR SUPPORT
+######REASONS FOR SUPPORT
 reason_cols <- grep("^Reasons for Supporting Specific Esports Teams_", names(df), value = TRUE)
 print(reason_cols)
 
-
-library(dplyr)
-library(stringr)
-library(tidyr)
-library(purrr)
-
-# 1) Define your 12 reasons in order
 reasons <- c(
   "I am only a fan of a particular player on the team",
   "I like the team because of their performances in a particular competition/game",
@@ -1944,20 +1252,17 @@ reasons <- c(
   "None of these"
 )
 
-# 2) Your “top” teams
 top_teams <- c(
   "Cloud9", "Excel Esports", "Fnatic",
   "G2 Esports", "PSG", "Red Bull",
   "T1", "Team Liquid", "Infinity", "FaZe Clan"
 )
 
-# 3) Grab the reason‐columns
 reason_cols <- grep(
   "^Reasons for Supporting Specific Esports Teams_",
   names(df), value = TRUE
 )
 
-# 4) Build lookup of col → team → reason_index
 col_info <- tibble(colname = reason_cols) %>%
   extract(
     col     = colname,
@@ -1972,7 +1277,6 @@ col_info <- tibble(colname = reason_cols) %>%
   select(colname, team, reason_index)
 
 
-# 5) Pivot long, filter, tag top vs other, aggregate per hash×reason
 df_reasons <- df %>%
   select(hash, all_of(col_info$colname)) %>%
   pivot_longer(
@@ -2003,28 +1307,15 @@ df_reasons <- df %>%
     names_prefix = "R"
   )
 
-# 6) Rename R1…R12 to your actual reason text
 colnames(df_reasons)[-1] <- reasons
 
-# 7) Join back onto original df
 df <- df %>%
   left_join(df_reasons, by = "hash")
-
-#########################################REASONS FOR SUPPORT
-
+#####END - REASONS FOR SUPPORT
 
 
-
-
-
-
-
-library(data.table)
-setDT(df)
-
-# Remove the prefix from all column names
+#***RENAMING
 setnames(df, old = names(df), new = sub("^gwi-siz-fce\\.", "", names(df)))
-
 setnames(df, old = c("q2", "q3"), new = c("gender", "age"))
 setnames(df, old = c("q4", "q7"), new = c("gaming freq.", "main gaming device"))
 setnames(df, old = c("q8_1", "q8_2"), new = c("play time weekday", "play time weekend"))
@@ -2041,29 +1332,21 @@ df <- df %>%
     Purch_Freq_CosmeticSkins  = `q12_8`, 
     Purch_Freq_Expansions  = `q12_9`
   )
+#***END - RENAMING
 
 
 
-
-######################################SPENDING CATEGORY
-library(data.table)
-
-# Zorg dat df een data.table is
-setDT(df)
-
-# 1. Bepaal alle q13-prefixed kolommen (zonder prefix)
+#######SPENDING CATEGORY
 prefixes <- c("q13", paste0("q13", letters[2:11]))  # q13, q13b, ..., q13k
 all_q13_cols <- paste0(rep(prefixes, each = 4), "_", rep(1:4, times = length(prefixes)))
-all_q13_cols <- intersect(all_q13_cols, names(df))  # alleen kolommen die bestaan
+all_q13_cols <- intersect(all_q13_cols, names(df))  
 
-# 2. Zet "0", "", of "NA" om naar echte NA
 df[, (all_q13_cols) := lapply(.SD, function(x) {
   x <- as.character(x)
   x[x %in% c("0", "", "NA")] <- NA_character_
   return(x)
 }), .SDcols = all_q13_cols]
 
-# 3. Mapping van waarden naar spending-categorieën
 mapping <- c(
   # UK (GBP)
   "Less than PS20" = "lowest spending category",
@@ -2177,7 +1460,6 @@ mapping <- c(
   "Over 9,300,000 VND" = "highest spending category"
 )
 
-# 4. Categoriseer per type besteding
 cols_topic1 <- intersect(paste0(prefixes, "_1"), names(df))
 cols_topic2 <- intersect(paste0(prefixes, "_2"), names(df))
 cols_topic3 <- intersect(paste0(prefixes, "_3"), names(df))
@@ -2199,14 +1481,12 @@ df[, in_game_purchases_spend_cat := mapping[
   Reduce(function(x, y) fifelse(is.na(x) | x == "" | x == "0", y, x), .SD)
 ], .SDcols = cols_topic4]
 
-# 5. Controle op ongecodeerde waarden
 alle_waarden <- unlist(df[, c(cols_topic1, cols_topic2, cols_topic3, cols_topic4), with=FALSE])
 ongecodeerd <- setdiff(unique(alle_waarden[!is.na(alle_waarden)]), names(mapping))
 if (length(ongecodeerd) > 0) {
   warning("Onbekende categorieën aangetroffen die niet zijn omgezet: ", paste(ongecodeerd, collapse = ", "))
 }
 
-# 6. Controle op meerdere waarden per respondent binnen 1 onderwerp
 for (cols in list(cols_topic1, cols_topic2, cols_topic3, cols_topic4)) {
   mult_vals <- df[, rowSums(!is.na(.SD)), .SDcols = cols]
   if (any(mult_vals > 1, na.rm = TRUE)) {
@@ -2214,31 +1494,16 @@ for (cols in list(cols_topic1, cols_topic2, cols_topic3, cols_topic4)) {
   }
 }
 
-# 7. Hernoem voor duidelijkheid
-setnames(df, c("new_games_spend_cat", "gaming_subs_spend_cat", 
-               "streamer_donations_spend_cat", "in_game_purchases_spend_cat"),
-         c("Nieuwe_videogames_bestedingscategorie", 
-           "Abonnementen_gamediensten_bestedingscategorie", 
-           "Donaties_streamers_bestedingscategorie", 
-           "Ingame_aankopen_bestedingscategorie"))
-
-
-
-
-# Identify columns that start with the specific pattern
 cols_to_remove <- grep("^q13", names(df), value = TRUE)
-
-# Remove those columns
 df[, (cols_to_remove) := NULL]
+######END - Spending category
 
-
+#***RENAMING
 df <- df %>%
   rename(
     Gaming_Purchase_Reason = `q14`,
     GamingImportance = `q15`
   )
-
-
 df <- df %>%
   rename(
     FirstChoice_InFreeTime = `q16_1`,
@@ -2248,8 +1513,6 @@ df <- df %>%
     ProudToPlay = `q16_5`, 
     GameThemedClothing_Decoration  = `q16_6`
   )
-
-
 
 df <- df %>%
   rename(GamingTournamentCompetition_Interest = `q17`)
@@ -2266,22 +1529,6 @@ df <- df %>%
 df <- df %>%
   rename(EsportsTeamSupport = `q26`)
 
-
-
-
-# Identify columns that start with the specific pattern
-cols_to_remove <- grep("^WatchingBehavior", names(df), value = TRUE)
-# Remove those columns
-df[, (cols_to_remove) := NULL]
-
-# Identify columns that start with the specific pattern
-cols_to_remove <- grep("^Reasons for Supporting Specific Esports Teams_", names(df), value = TRUE)
-# Remove those columns
-df[, (cols_to_remove) := NULL]
-
-
-
-
 df <- df %>%
   rename(
     Improvement_Entertainment = `q30a`,
@@ -2292,22 +1539,6 @@ df <- df %>%
     OfficialBroadcast_Streamers  = `q30f`
   )
 
-
-
-# Identify columns that start with the specific pattern
-cols_to_remove <- grep("^Channel Awareness_", names(df), value = TRUE)
-# Remove those columns
-df[, (cols_to_remove) := NULL]
-
-
-# Identify columns that start with the specific pattern
-cols_to_remove <- grep("^Content Type Watched on Each Channel_", names(df), value = TRUE)
-# Remove those columns
-df[, (cols_to_remove) := NULL]
-
-
-
-
 df <- df %>%
   rename(GamingCompetitiveness = `q38`)
 
@@ -2316,12 +1547,10 @@ df <- df %>%
 df <- df %>%
   rename(TournamentInvolvement = `q40`)
 
-
 df <- df %>%
   rename(InfluenceSponsorship_TeamSupport = `q45`)
 df <- df %>%
   rename(PreferredMethod_FinancialSupport = `q46`)
-
 
 df <- df %>%
   rename(
@@ -2334,46 +1563,12 @@ df <- df %>%
     ConsiderFuturePurch_Brand  = `q50_7`
   )
 
-
-
-
-# Identify columns that start with the specific pattern
-cols_to_remove <- grep("^Merchandise Purchase History", names(df), value = TRUE)
-# Remove those columns
-df[, (cols_to_remove) := NULL]
-
-
-
 df <- df %>%
   rename(LimitedEditionPurch_EsportsTeam = `q52_1`)
 df <- df %>%
   rename(LimitedEditionPurch_Streamer = `q52_2`)
-
 df <- df %>%
   rename(ExperienceBuildingPC = `q53`)
-
-
-
-# Identify columns that start with the specific pattern
-cols_to_remove <- grep("^PC Brand Awareness", names(df), value = TRUE)
-# Remove those columns
-df[, (cols_to_remove) := NULL]
-
-
-
-# Identify columns that start with the specific pattern
-cols_to_remove <- grep("^PC Brand Ownership", names(df), value = TRUE)
-# Remove those columns
-df[, (cols_to_remove) := NULL]
-
-
-# Identify columns that start with the specific pattern
-cols_to_remove <- grep("^Brands Best Suited to Gaming", names(df), value = TRUE)
-# Remove those columns
-df[, (cols_to_remove) := NULL]
-
-
-
 
 
 df <- df %>%
@@ -2387,47 +1582,62 @@ df <- df %>%
     PurchDecision_OwnedByLikedGamerPlayer = `q62_3`
   )
 
-
 df <- df %>%
   rename(
     YourDecision_Internetprovider = `q67_1`,
     ImportanceGamingHabits_InternetProvider = `q67_2`
   )
 
-# Identify columns that start with the specific pattern
+
+setnames(df,
+         old = c("Other", "None_of_these", "None of these.x", "None of these.y"),
+         new = c("Betting_Other", "Betting_None of these", 
+                 "ChannelAwareness_None of these", "ReasonsForSupport_None of these"))
+
+setnames(df,
+         old = c("q998_1", 
+                 "q998_2", 
+                 "q998_3", 
+                 "q998_4", 
+                 "q105"),
+         new = c("GamingSpend_NewVideoGames", 
+                 "GamingSpend_SubscriptionsGamingServices", 
+                 "GamingSpend_Donations/Subscriptions.Streamers/ContentCreators", 
+                 "GamingSpend_Content/in-game purchases", 
+                 "AgeInterval"))
+
+
+
+#***REMOVING
+cols_to_remove <- grep("^WatchingBehavior", names(df), value = TRUE)
+df[, (cols_to_remove) := NULL]
+cols_to_remove <- grep("^Reasons for Supporting Specific Esports Teams_", names(df), value = TRUE)
+df[, (cols_to_remove) := NULL]
+cols_to_remove <- grep("^Channel Awareness_", names(df), value = TRUE)
+df[, (cols_to_remove) := NULL]
+cols_to_remove <- grep("^Content Type Watched on Each Channel_", names(df), value = TRUE)
+df[, (cols_to_remove) := NULL]
+cols_to_remove <- grep("^Merchandise Purchase History", names(df), value = TRUE)
+df[, (cols_to_remove) := NULL]
+cols_to_remove <- grep("^PC Brand Awareness", names(df), value = TRUE)
+df[, (cols_to_remove) := NULL]
+cols_to_remove <- grep("^PC Brand Ownership", names(df), value = TRUE)
+df[, (cols_to_remove) := NULL]
+cols_to_remove <- grep("^Brands Best Suited to Gaming", names(df), value = TRUE)
+df[, (cols_to_remove) := NULL]
 cols_to_remove <- grep("^Consumption Habits", names(df), value = TRUE)
-# Remove those columns
 df[, (cols_to_remove) := NULL]
-
-
-# Identify columns that start with the specific pattern
 cols_to_remove <- grep("^Food Categories During", names(df), value = TRUE)
-# Remove those columns
 df[, (cols_to_remove) := NULL]
-
-
-# Identify columns that start with the specific pattern
 cols_to_remove <- grep("^Drink Categories During", names(df), value = TRUE)
-# Remove those columns
 df[, (cols_to_remove) := NULL]
-
-# Identify columns that start with the specific pattern
 cols_to_remove <- grep("^Categories Betted On", names(df), value = TRUE)
-# Remove those columns
 df[, (cols_to_remove) := NULL]
-
-# Identify columns that start with the specific pattern
 cols_to_remove <- grep("^Categories Regularly Betted On", names(df), value = TRUE)
-# Remove those columns
 df[, (cols_to_remove) := NULL]
-
-# Identify columns that start with the specific pattern
 cols_to_remove <- grep("^Games Played in Past Year", names(df), value = TRUE)
-# Remove those columns
 df[, (cols_to_remove) := NULL]
 
-
-# Zet de gewenste kolommen met hun nieuwe namen
 keep_map <- c(
   "q65_1"  = "Acer",
   "q65_2"  = "Alienware",
@@ -2449,77 +1659,192 @@ keep_map <- c(
   "q65_75" = "Seagate",
   "q65_95" = "Toshiba"
 )
-
-# Vind alle q65 kolommen in je dataframe
 q65_all <- grep("^q65_[0-9]+$", names(df), value = TRUE)
-
-# Bepaal welke kolommen NIET gewenst zijn en dus weg moeten
 drop_cols <- setdiff(q65_all, names(keep_map))
-
-# Verwijder de overbodige q65_ kolommen
 df[, (drop_cols) := NULL]
-
-# Hernoem de overgebleven kolommen volgens je mapping
 setnames(df, old = names(keep_map), new = keep_map)
-
-
-# Identify columns that start with the specific pattern
 cols_to_remove <- grep("^Games Watched Non-esports Content_", names(df), value = TRUE)
-# Remove those columns
 df[, (cols_to_remove) := NULL]
 
 
+###NAAR BINAIR OMZETTEN
+cols_to_convert <- names(df)[sapply(df, function(x) {
+  vals <- unique(na.omit(x))
+  length(vals) == 2 && any(vals == "0") && any(vals != "0")
+})]
+
+df[, (cols_to_convert) := lapply(.SD, function(x) {
+  ifelse(x == "0", 0L, 1L)
+}), .SDcols = cols_to_convert]
+
+###LEEG NAAR 0
+cols_with_empty <- names(df)[sapply(df, function(x) any(x == "", na.rm = TRUE))]
+df[, (cols_with_empty) := lapply(.SD, function(x) {
+  x[x == ""] <- 0
+  x
+}), .SDcols = cols_with_empty]
+df[is.na(df)] <- 0
+
+###HAAL NR WEG VAN AANTAL BRANDS
+confidence_cols <- c("very_unconfident", "unconfident", "neutral", "confident", "very_confident")
+df[, (confidence_cols) := lapply(.SD, function(x) {
+  gsub(":\\s*[0-9]+", "", x)  # removes ": 1", ":2", etc.
+}), .SDcols = confidence_cols]
 
 
-library(openxlsx)
+###HAAL NUMMER WEG NA OTHER
+team_reason_cols <- c(
+  "I_like_the_team_because_of_their_performances_in_a_particular_competition_game",
+  "I_like_the_influencers_or_brand_ambassadors_that_are_part_of_the_team",
+  "I_am_only_a_fan_of_a_particular_player_on_the_team",
+  "I_like_the_team_s_overall_branding__values__and_messaging",
+  "I_like_that_the_team_represents_me_in_some_way",
+  "I_like_the_story_or_narrative_behind_the_team",
+  "I_like_the_attitude_of_the_players_on_the_team",
+  "I_am_a_fan_of_the_team_s_content__video__web__social_media_",
+  "I_was_influenced_by_family_or_friends_to_become_a_fan_of_the_team",
+  "I_was_originally_only_a_fan_of_a_particular_player__but_now_I_am_also_a_fan_of_the_team",
+  "I_like_the_team_s_community_and_what_they_do_for_their_community"
+)
+
+df[, (team_reason_cols) := lapply(.SD, function(x) {
+  gsub("(Other):\\s*[0-9]+", "\\1", x)  # keeps "Other", removes ": 1"
+}), .SDcols = team_reason_cols]
 
 
+####MAAK ENKELE KOLOMMEN NUMERISCH
+df[, gender := fifelse(gender == "Male", 0L,
+                       fifelse(gender == "Female", 1L, NA_integer_))]
+
+df[, RankedPlay := fifelse(RankedPlay == "No", 0L,
+                           fifelse(RankedPlay == "Yes", 1L, NA_integer_))]
+
+describe_cols <- names(df)[sapply(df, function(x) {
+  vals <- unique(na.omit(x))
+  length(vals) == 2 &&
+    all(vals %in% c("Describes me", "Does not describe me"))
+})]
+
+df[, (describe_cols) := lapply(.SD, function(x) {
+  fifelse(x == "Describes me", 1L,
+          fifelse(x == "Does not describe me", 0L, NA_integer_))
+}), .SDcols = describe_cols]
+
+df[, ExperienceBuildingPC := fifelse(ExperienceBuildingPC == "Yes", 1L,
+                                     fifelse(ExperienceBuildingPC == "No", 0L,
+                                             fifelse(ExperienceBuildingPC == "0", NA_integer_, NA_integer_)))]
+
+df[, YourDecision_Internetprovider := fifelse(YourDecision_Internetprovider == "Yes", 1L,
+                                              fifelse(YourDecision_Internetprovider == "No", 0L, NA_integer_))]
+
+df[, ImportanceGamingHabits_InternetProvider := fifelse(ImportanceGamingHabits_InternetProvider == "Yes", 1L,
+                                                        fifelse(ImportanceGamingHabits_InternetProvider == "No", 0L, NA_integer_))]
+
+gaming_spend_cols <- grep("^GamingSpend_", names(df), value = TRUE)
+
+df[, (gaming_spend_cols) := lapply(.SD, function(x) {
+  fifelse(x == "0", 0L,
+          fifelse(x == "Low", 1L,
+                  fifelse(x == "Medium", 2L,
+                          fifelse(x == "High", 3L, NA_integer_))))
+}), .SDcols = gaming_spend_cols]
+
+str(df[, c("RankedPlay", "ExperienceBuildingPC",
+           "YourDecision_Internetprovider", "ImportanceGamingHabits_InternetProvider", "GamingSpend_NewVideoGames"), with = FALSE])
+
+
+
+
+####AANTAL 0's in dataset
+zero_counts <- sapply(df, function(col) sum(col == 0, na.rm = TRUE))
+top_30 <- sort(zero_counts, decreasing = TRUE)[1:30]
+top_30_dt <- data.table(
+  Column = names(top_30),
+  Zero_Counts = as.integer(top_30)
+)
+print(top_30_dt)
+
+zero_counts_dt <- data.table(
+  Column = names(zero_counts),
+  Zero_Counts = as.integer(zero_counts)
+)
+print(zero_counts_dt)
+
+zero_na_counts <- sapply(df, function(col) sum(col == 0 | is.na(col), na.rm = TRUE))
+zero_na_dt <- data.table(
+  Column = names(zero_na_counts),
+  Zero_OR_NA_Count = as.integer(zero_na_counts)
+)
+write_xlsx(zero_na_dt, path = "zero_or_na_counts.xlsx")
+
+
+
+
+###################CORR MATRIX
+numeric_like_cols <- names(df)[sapply(df, function(col) {
+  all(grepl("^\\s*[0-9]+\\s*$", na.omit(col)))  
+})]
+
+df[, (numeric_like_cols) := lapply(.SD, function(x) as.numeric(trimws(x))), .SDcols = numeric_like_cols]
+numeric_count <- sum(sapply(df, is.numeric))
+categorical_count <- ncol(df) - numeric_count
+cat("Columns converted to numeric:", length(numeric_like_cols), "\n")
+cat("Total numeric columns now:", numeric_count, "\n")
+cat("Total categorical (non-numeric) columns:", categorical_count, "\n")
+
+numeric_df <- df[, which(sapply(df, is.numeric)), with = FALSE]
+numeric_df <- numeric_df[, which(sapply(numeric_df, function(x) !all(is.na(x)) && length(unique(x)) > 1)), with = FALSE]
+cor_matrix <- cor(numeric_df, use = "pairwise.complete.obs")
+print(cor_matrix[1:5, 1:5])  
+cor_df <- as.data.frame(cor_matrix)
+cor_df <- cbind(Column = rownames(cor_df), cor_df) 
+write_xlsx(cor_df, path = "correlation_matrix.xlsx")
+
+cor_long <- melt(cor_matrix, varnames = c("Var1", "Var2"), value.name = "Correlation")
+setDT(cor_long)
+cor_long[, Color := cut(Correlation,
+                        breaks = c(-1, -0.7, -0.5, -0.3, 0.3, 0.5, 0.7, 1),
+                        labels = c("Red", "Orange", "Yellow", "White", "Yellow", "Orange", "Red"),
+                        include.lowest = TRUE)]
+write_xlsx(cor_long, "correlation_matrix_colourcoded.xlsx")
+
+
+####UNIQUE VALUES PER COLUMN
+unique_counts <- sapply(df, function(x) length(unique(na.omit(x))))
+unique_counts_dt <- data.table(
+  Column = names(unique_counts),
+  Unique_Value_Count = as.integer(unique_counts)
+)
+write_xlsx(unique_counts_dt, "unique_values.xlsx")
+
+
+####NEAR ZERVO VARIANCE COLUMNS
+nzv <- nearZeroVar(df, saveMetrics = TRUE)
+nzv_dt <- as.data.table(nzv, keep.rownames = "Column")
+write_xlsx(nzv_dt, path = "near_zero_variance_metrics.xlsx")
+
+
+####EXPORT DATASET
 duplicated_names <- names(df)[duplicated(names(df))]
 print(duplicated_names)
-
-
-# 2. Load it
-library(writexl)
-
-# 3. Optional but recommended: clean column names again
 names(df) <- trimws(names(df))
 names(df) <- gsub("[^A-Za-z0-9_]", "_", names(df))
 names(df) <- make.unique(names(df), sep = "_dup_")
-
-# 4. Write the Excel file
-write_xlsx(df, path = "Final_Dataset_PowerBI.xlsx")
-
-
-library(data.table)
-
-# Export to CSV
+write_xlsx(df, path = "Dataset_Cleaned.xlsx")
 fwrite(df, file = "Final_Dataset.csv")
 write.csv(df, file = "Final_Dataset.csv", row.names = FALSE)
 
 
 
 
+#####DESCRIPTIVE VISUALISATIONS CLEANED VS RAW
+#########CLEANED
 rows <- nrow(df)
 cols <- ncol(df)
-
-library(ggplot2)
-
 df_dims <- data.frame(
   Dimensie = c("Aantal rijen", "Aantal kolommen"),
   Aantal = c(rows, cols)
 )
-
-
-ggplot(df_dims, aes(x = Dimensie, y = Aantal, fill = Dimensie)) +
-  geom_col(width = 0.4) +
-  scale_y_log10() +
-  labs(title = "Grootte van de dataset (log-schaal)", x = "", y = "Aantal (log10)") +
-  theme_minimal() +
-  theme(legend.position = "none")
-
-
-
-library(ggpubr)
 
 plot_rows <- ggplot(df_dims[df_dims$Dimensie == "Aantal rijen", ], aes(x = Dimensie, y = Aantal)) +
   geom_col(fill = "steelblue") +
@@ -2532,31 +1857,22 @@ plot_cols <- ggplot(df_dims[df_dims$Dimensie == "Aantal kolommen", ], aes(x = Di
   ylim(0, 5000) + geom_text(aes(label = Aantal), vjust = -0.5, size = 3) + 
   labs(title = "Aantal kolommen", x = NULL, y = NULL) +
   theme_minimal()
-
-
 ggarrange(plot_cols, plot_rows, ncol = 2)
 
 
-
-
-
-# ---- Step 2: Load your main dataset ----
+#######RAW
 df2 <- fread(
   "C:/Users/mira.leenders/OneDrive - Obasi/Documenten/R studio/DATASET THESIS.csv",
   stringsAsFactors = FALSE
 )
 
-
 rows2 <- nrow(df2)
 cols2 <- ncol(df2)
-
-library(ggplot2)
 
 df_dims2 <- data.frame(
   Dimensie2 = c("Aantal rijen", "Aantal kolommen"),
   Aantal2 = c(rows2, cols2)
 )
-
 
 plot_rows2 <- ggplot(df_dims2[df_dims2$Dimensie2 == "Aantal rijen", ], aes(x = Dimensie2, y = Aantal2)) +
   geom_col(fill = "steelblue") +
@@ -2569,19 +1885,9 @@ plot_cols2 <- ggplot(df_dims2[df_dims2$Dimensie2 == "Aantal kolommen", ], aes(x 
   ylim(0, 5000) +  geom_text(aes(label = Aantal2), vjust = -0.5, size = 3) + 
   labs(title = "Aantal kolommen", x = NULL, y = NULL) +
   theme_minimal()
-
-
 ggarrange(plot_cols2, plot_rows2, ncol = 2)
 
-
-
-
-
-library(data.table)
-library(ggplot2)
-
-# Veronderstel dat je data.frame of data.table heet 'df'
-# Stap 1: bepaal per kolom het type
+####CLEANED
 type_table <- data.table(
   Kolom = names(df),
   Type = sapply(df, function(x) {
@@ -2593,10 +1899,7 @@ type_table <- data.table(
   })
 )
 
-# Stap 2: tel het aantal kolommen per type
 type_counts <- type_table[, .N, by = Type]
-
-# Stap 3: visualiseer met ggplot
 ggplot(type_counts, aes(x = reorder(Type, -N), y = N, fill = Type)) +
   geom_col() +
   geom_text(aes(label = N), vjust = -0.3, size = 4) +
@@ -2608,43 +1911,7 @@ ggplot(type_counts, aes(x = reorder(Type, -N), y = N, fill = Type)) +
   coord_cartesian(ylim = c(0, max(type_counts$N) + 10))
 
 
-library(data.table)
-library(ggplot2)
-
-# Veronderstel dat je data.frame of data.table heet 'df'
-# Stap 1: bepaal per kolom het type
-type_table <- data.table(
-  Kolom = names(df),
-  Type = sapply(df, function(x) {
-    if (is.logical(x)) return("Binair (logical)")
-    else if (is.factor(x)) return("Categorisch (factor)")
-    else if (is.character(x)) return("Tekst (character)")
-    else if (is.numeric(x)) return("Numeriek")
-    else return("Anders")
-  })
-)
-
-# Stap 2: tel het aantal kolommen per type
-type_counts <- type_table[, .N, by = Type]
-
-# Stap 3: visualiseer met ggplot
-ggplot(type_counts, aes(x = reorder(Type, -N), y = N, fill = Type)) +
-  geom_col() +
-  geom_text(aes(label = N), vjust = -0.3, size = 4) +
-  labs(title = "Aantal kolommen per datatype",
-       x = "Datatype",
-       y = "Aantal kolommen") +
-  theme_minimal() +
-  theme(legend.position = "none") +
-  coord_cartesian(ylim = c(0, max(type_counts$N) + 10))
-
-
-
-##############cHANGE DATA TYPE
-library(data.table)
-setDT(df)
-
-# 1. Define the prefixes you want to convert
+##############CHANGE DATA TYPE
 prefixes <- c(
   "Esports Awareness_", "Devices Used Ever_", "Games Played in Last 12 Months",
   "Games Played Regularly_", "Esports Watched Ever_", "Esports Team Supported_",
@@ -2659,45 +1926,29 @@ prefixes <- c(
   "Reasons for Supporting General Esports Teams_", "Games_None_of_these_Both"
 )
 
-# 2. Create regex pattern and find matching columns
 pattern <- paste0("^(", paste0(prefixes, collapse = "|"), ")")
 cols_to_convert <- grep(pattern, names(df), value = TRUE)
 
-# 3. Convert: "0" or "" → 0, everything else → 1
 df[, (cols_to_convert) := lapply(.SD, function(x) {
   x <- as.character(x)
   fifelse(x == "0" | x == "", 0L, 1L)
 }), .SDcols = cols_to_convert]
 
-# 4. Optional: Check result
 summary(df[, ..cols_to_convert])
 
 
-
 #########################VARIABILITEIT
-
-library(data.table)
-library(ggplot2)
-
-# Zet naar data.table indien nodig
-setDT(df)
-
-# Kolomnamen behalve 'hash'
 kolommen_zonder_hash <- setdiff(names(df), "hash")
 
-# Bereken aantal unieke waarden per kolom (zonder hash)
 variability <- data.table(
   Kolom = kolommen_zonder_hash,
   AantalUniek = sapply(df[, ..kolommen_zonder_hash], function(x) length(unique(x)))
 )
 
-# Sorteer op aflopende variabiliteit
 variability <- variability[order(-AantalUniek)]
 
-# Bekijk top 20 met meeste variatie
 head(variability, 20)
 
-# Visualisatie
 ggplot(variability[1:20], aes(x = reorder(Kolom, -AantalUniek), y = AantalUniek)) +
   geom_col(fill = "steelblue") +
   coord_flip() +
@@ -2705,24 +1956,15 @@ ggplot(variability[1:20], aes(x = reorder(Kolom, -AantalUniek), y = AantalUniek)
        x = "Kolomnaam", y = "Aantal unieke waarden") +
   theme_minimal()
 
-library(data.table)
-library(ggplot2)
-
-# Zet naar data.table indien nodig
-setDT(df)
-
-# Bereken aantal unieke waarden (zonder 'hash')
 variability <- data.table(
   Kolom = setdiff(names(df), "hash"),
   AantalUniek = sapply(df[, !("hash"), with=FALSE], function(x) length(unique(x)))
 )
 
-# Voeg categorisering toe
 variability[, Variabiliteit := fifelse(AantalUniek <= 2, "Binair (≤2)",
                                        fifelse(AantalUniek <= 5, "Laag (3–5)",
                                                fifelse(AantalUniek <= 10, "Gemiddeld (6–10)", "Hoog (>10)")))]
 
-# Plot: aantal kolommen per categorie
 ggplot(variability[, .N, by=Variabiliteit], aes(x=reorder(Variabiliteit, -N), y=N, fill=Variabiliteit)) +
   geom_col() +
   geom_text(aes(label=N), vjust=-0.5) +
@@ -2733,90 +1975,4 @@ ggplot(variability[, .N, by=Variabiliteit], aes(x=reorder(Variabiliteit, -N), y=
 
 
 
-library(data.table)
-setDT(df)
-
-# Bereken het aantal NA's per kolom
-na_counts <- sapply(df, function(x) sum(is.na(x)))
-
-# Selecteer kolommen met ≤ 16.000 NA's
-cols_to_keep <- names(na_counts)[na_counts <= 16000]
-
-# Houd enkel die kolommen over in de dataset
-df <- df[, ..cols_to_keep]
-
-
-
-
-#################aantal NA's
-library(data.table)
-library(ggplot2)
-
-# Zorg dat df een data.table is
-setDT(df)
-
-# Sluit de hash-kolom uit indien gewenst
-kolommen_zonder_hash <- setdiff(names(df), "hash")
-
-# Bereken aantal NA's per kolom
-na_telling <- data.table(
-  Kolom = kolommen_zonder_hash,
-  Aantal_NA = sapply(df[, ..kolommen_zonder_hash], function(x) sum(is.na(x)))
-)
-
-# Sorteer op aflopende volgorde
-na_telling <- na_telling[order(-Aantal_NA)]
-
-# Visualisatie met data labels
-ggplot(na_telling[1:30], aes(x = reorder(Kolom, Aantal_NA), y = Aantal_NA)) +
-  geom_col(fill = "darkorange") +
-  geom_text(aes(label = Aantal_NA), hjust = -0.1, size = 3.5) +  # data labels
-  coord_flip() +
-  ylim(0, max(na_telling$Aantal_NA[1:30]) * 1.1) +  # extra ruimte voor labels
-  labs(title = "Top 20 kolommen met meeste NA's",
-       x = "Kolom", y = "Aantal NA's") +
-  theme_minimal()
-
-
-
-
-# Zorg dat df een data.table is
-library(data.table)
-setDT(df)
-
-# Voeg een kolom toe met het aantal niet-NA antwoorden per rij (respondent)
-df[, not_NA_per_row := rowSums(!is.na(.SD))]
-
-# Gemiddelde aantal niet-lege antwoorden per respondent
-mean_not_NA <- mean(df$not_NA_per_row)
-print(mean_not_NA)
-
-library(ggplot2)
-names(df) <- make.unique(names(df), sep = "_dup_")
-
-
-ggplot(df, aes(x = not_NA_per_row)) +
-  geom_histogram(binwidth = 10, fill = "steelblue", color = "white") +
-  labs(title = "Aantal niet-lege antwoorden per respondent",
-       x = "Aantal niet-lege antwoorden",
-       y = "Aantal respondenten") +
-  theme_minimal()
-
-
-
-
-# Assuming your dataset is called `df`
-
-# Total number of values in the dataset
-total_values <- prod(dim(df))
-
-# Total number of missing values
-total_missing <- sum(is.na(df))
-
-# Proportion of missing values
-missing_proportion <- total_missing / total_values
-
-# Display the result as a percentage
-missing_percentage <- round(missing_proportion * 100, 2)
-cat("Overall proportion of missing values:", missing_percentage, "%\n")
 
