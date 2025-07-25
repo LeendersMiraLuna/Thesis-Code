@@ -1,0 +1,1738 @@
+library(tidyverse)
+library(poLCA)
+library(readxl)
+library(caret)
+library(psych)
+library(naniar)
+library(writexl)
+library(dplyr) 
+library(ggplot2)
+library(stringr)
+library(tidyr)
+library(forcats)
+
+
+mijn_dataset <- read_excel("C:\\Users\\mira.leenders\\OneDrive - Obasi\\Documenten\\Thesis\\correlation_matrix_colourcoded.xlsx", sheet = "Dataset Cleaned")
+
+#ADV
+adv_cols <- c("Advertising", "Commercial_breaks", "Graphical_inserts", 
+              "In_game_advertising", "Logo_placement", "Product_placement", 
+              "Shoutouts", "Sponsored_segments")
+
+df_LCMM <- mijn_dataset %>%
+  mutate(across(all_of(adv_cols), ~factor(., 
+                                          levels = c("0", "Recognition", "Preference", "Recognition, Preference"))))
+
+
+lapply(df_LCMM[adv_cols], table)
+
+
+#SPONSOR
+sponsor_cols_all <- c(
+  "Food___Drink",
+  "Betting___Gambling",
+  "Video_game_publishers",
+  "Gaming_tech___devices__e_g___technology_products_designed_specifically_for_gaming_",
+  "Non_gaming_tech___devices_e_g___technology_products_that_are_not_designed_specifically_for_gaming_",
+  "Telecoms",
+  "Clothing___Fashion",
+  "Financial_Services",
+  "Cryptocurrency",
+  "Automotive",
+  "Restaurants",
+  "Retail",
+  "Self_care___Grooming___Deodorant"
+)
+
+df_LCMM <- df_LCMM %>%
+  mutate(across(all_of(sponsor_cols_all),
+                ~factor(., levels = c("0", "expectation", "preference", "expectation, preference"))))
+
+for (col in sponsor_cols_all) {
+  cat("\n Frequenties voor:", col, "\n")
+  print(table(df_LCMM[[col]]))
+}
+
+sapply(df_LCMM[sponsor_cols_all], function(col) mean(col == "0"))
+
+
+#INTEREST EXPERIENCE
+esports_interest_cols <- c(
+  "Esports_Experience_Interest_Getting_coached_by_a_professional_player",
+  "Esports_Experience_Interest_Taking_part_in_tournaments",
+  "Esports_Experience_Interest_Winning_unique_prizes",
+  "Esports_Experience_Interest_Taking_part_in_amateur_esports_tournaments",
+  "Esports_Experience_Interest_Meeting_a_professional_esporter___team_in_person",
+  "Esports_Experience_Interest_Following_a_professional_team_for_a_day",
+  "Esports_Experience_Interest_Getting_a_chance_to_play_with_a_professional_player",
+  "Esports_Experience_Interest_Attending_a_live_tournament",
+  "Esports_Experience_Interest_Receiving_limited_edition_branded_merchandise"
+)
+
+
+zero_proportions <- sapply(df_LCMM[esports_interest_cols], function(col) {
+  mean(col == "0", na.rm = TRUE)
+})
+
+print(round(zero_proportions, 4))
+
+df_LCMM <- df_LCMM %>%
+  mutate(
+    ExperienceInterest_CompetitivePart = if_else(
+      Esports_Experience_Interest_Taking_part_in_tournaments == 1 |
+        Esports_Experience_Interest_Taking_part_in_amateur_esports_tournaments == 1, 1, 0),
+    
+    ExperienceInterest_DirectPro_PlayerAccess = if_else(
+      Esports_Experience_Interest_Getting_coached_by_a_professional_player == 1 |
+        Esports_Experience_Interest_Getting_a_chance_to_play_with_a_professional_player == 1 |
+        Esports_Experience_Interest_Meeting_a_professional_esporter___team_in_person == 1 |
+        Esports_Experience_Interest_Following_a_professional_team_for_a_day == 1, 1, 0),
+    
+    ExperienceInterest_LiveEventSpectating = if_else(
+      Esports_Experience_Interest_Attending_a_live_tournament == 1, 1, 0),
+    
+    ExperienceInterest_ExclusiveRewards_and_Merchandise = if_else(
+      Esports_Experience_Interest_Winning_unique_prizes == 1 |
+        Esports_Experience_Interest_Receiving_limited_edition_branded_merchandise == 1, 1, 0)
+  )
+
+df_LCMM <- df_LCMM %>%
+  mutate(across(starts_with("ExperienceInterest_"), ~factor(., levels = c(0, 1))))
+
+for (col in names(df_LCMM)[grepl("^ExperienceInterest_", names(df_LCMM))]) {
+  cat("\n Frequenties voor:", col, "\n")
+  print(table(df_LCMM[[col]]))
+}
+
+experience_group_cols <- c(
+  "ExperienceInterest_CompetitivePart",
+  "ExperienceInterest_DirectPro_PlayerAccess",
+  "ExperienceInterest_LiveEventSpectating",
+  "ExperienceInterest_ExclusiveRewards_and_Merchandise"
+)
+zero_props <- sapply(df_LCMM[experience_group_cols], function(col) {
+  mean(col == 0, na.rm = TRUE)
+})
+print(round(zero_props, 4))
+
+
+#BRAND CONTR
+brand_contribution_cols <- c(
+  "Prefered_Brand_Contributions_Broadcast_events",
+  "Prefered_Brand_Contributions_Organise_events",
+  "Prefered_Brand_Contributions_Sponsor_events",
+  "Prefered_Brand_Contributions_Finance_events",
+  "Prefered_Brand_Contributions_Supply_events_e_g___with_tech__food__or_other_items_",
+  "Prefered_Brand_Contributions_Give_cash_prizes",
+  "Prefered_Brand_Contributions_Give_other_prizes",
+  "Prefered_Brand_Contributions_Sponsor_a_player___team",
+  "Prefered_Brand_Contributions_Create_content_about_esports",
+  "Prefered_Brand_Contributions_Finance___sponsor_content_creators",
+  "Prefered_Brand_Contributions_Create_products_tailored_to_esports"
+)
+
+df_LCMM <- df_LCMM %>%
+  mutate(across(all_of(brand_contribution_cols), ~factor(., levels = c(0, 1))))
+
+#METHODSFINSUPPORT
+unique(df_LCMM$PreferredMethod_FinancialSupport)
+
+df_LCMM <- df_LCMM %>%
+  mutate(PreferredMethod_FinancialSupport = factor(PreferredMethod_FinancialSupport))
+df_LCMM <- df_LCMM %>%
+  mutate(PreferredMethod_FinancialSupport = recode(PreferredMethod_FinancialSupport, 
+                                                   "0" = "None"))
+table(df_LCMM$PreferredMethod_FinancialSupport)
+
+
+brand_image_cols <- c(
+  "PositiveImage_Brand",
+  "WantToKnowMore_Brand",
+  "PreferOverCompeting_Brands",
+  "FollowSocialMedia_Brand",
+  "Recommend_Brand",
+  "Interact_Brand",
+  "ConsiderFuturePurch_Brand"
+)
+
+
+for (col in brand_image_cols) {
+  cat("\n Unieke waarden in:", col, "\n")
+  print(unique(df_LCMM[[col]]))
+  
+  cat("\n Frequenties voor:", col, "\n")
+  print(table(df_LCMM[[col]], useNA = "ifany"))
+}
+
+
+# Recode function
+df_LCMM <- df_LCMM %>%
+  mutate(across(all_of(brand_image_cols), ~case_when(
+    . == "0" ~ "0",
+    . %in% c("Strongly disagree", "Disagree") ~ "Disagree",
+    . == "Neither agree nor disagree" ~ "Neutral",
+    . %in% c("Agree", "Strongly agree") ~ "Agree",
+    TRUE ~ as.character(.)
+  ))) %>%
+  # Convert to factor with desired level order
+  mutate(across(all_of(brand_image_cols), ~factor(., levels = c("0", "Disagree", "Neutral", "Agree"))))
+
+
+for (col in brand_image_cols) {
+  cat("\n Nieuwe frequenties voor:", col, "\n")
+  print(table(df_LCMM[[col]]))
+}
+
+
+
+unique(df_LCMM$InfluenceSponsorship_TeamSupport)
+
+df_LCMM <- df_LCMM %>%
+  mutate(InfluenceSponsorship_TeamSupport = case_when(
+    InfluenceSponsorship_TeamSupport == "0" ~ "0",
+    InfluenceSponsorship_TeamSupport %in% c("Much more likely", "More likely") ~ "More likely",
+    InfluenceSponsorship_TeamSupport == "Not any more likely" ~ "Neutral",
+    InfluenceSponsorship_TeamSupport %in% c("Less likely", "Much less likely") ~ "Less likely",
+    TRUE ~ as.character(InfluenceSponsorship_TeamSupport)
+  )) %>%
+  mutate(InfluenceSponsorship_TeamSupport = factor(
+    InfluenceSponsorship_TeamSupport,
+    levels = c("0", "Less likely", "Neutral", "More likely")
+  ))
+table(df_LCMM$InfluenceSponsorship_TeamSupport)
+
+
+unique(df_LCMM$Peripheral_Decision_Factors_Brand_name)
+df_LCMM <- df_LCMM %>%
+  mutate(Peripheral_Decision_Factors_Brand_name = factor(Peripheral_Decision_Factors_Brand_name, levels = c(0, 1)))
+mean(df_LCMM$Peripheral_Decision_Factors_Brand_name == 0, na.rm = TRUE)
+
+
+df_LCMM <- df_LCMM %>%
+  mutate(ReasonsForSupport_brandingvalues_ambassadors = if_else(
+    Reasons_for_Supporting_General_Esports_Teams_I_like_the_influencers_or_brand_ambassadors_that_are_part_of_the_team == 1 |
+      Reasons_for_Supporting_General_Esports_Teams_I_like_the_team_s_overall_branding__values__and_messaging == 1,
+    1, 0
+  ))
+df_LCMM <- df_LCMM %>%
+  mutate(ReasonsForSupport_brandingvalues_ambassadors = factor(ReasonsForSupport_brandingvalues_ambassadors, levels = c(0, 1)))
+table(df_LCMM$ReasonsForSupport_brandingvalues_ambassadors)
+mean(df_LCMM$ReasonsForSupport_brandingvalues_ambassadors == 0, na.rm = TRUE)
+
+
+
+df_LCMM <- df_LCMM %>%
+  mutate(MostImportantFactorPC_Manufacturer_PCBrand = if_else(
+    MostImportantFactor_GamingPC == "The manufacturer / brand of the PC", 1, 0
+  ))
+df_LCMM <- df_LCMM %>%
+  mutate(MostImportantFactorPC_Manufacturer_PCBrand = factor(MostImportantFactorPC_Manufacturer_PCBrand, levels = c(0, 1)))
+mean(df_LCMM$MostImportantFactorPC_Manufacturer_PCBrand == 0, na.rm = TRUE)
+###LEAVE THIS ONE OUT, TOO HIGH 0 COUNT
+
+
+purchase_decision_cols <- c(
+  "PurchDecision_SupportEsportsTeam_Streamers",
+  "PurchDecision_OwnedByLikedGamerPlayer",
+  "PurchDecision_InGameBenefits"
+)
+
+
+for (col in purchase_decision_cols) {
+  cat("\n Unieke waarden in:", col, "\n")
+  print(unique(df_LCMM[[col]]))
+}
+
+
+df_LCMM <- df_LCMM %>%
+  mutate(across(all_of(purchase_decision_cols), ~case_when(
+    . == "0" ~ "0",
+    . %in% c("Much less likely", "Less likely") ~ "Less likely",
+    . == "Not any more likely" ~ "Neutral",
+    . %in% c("Much more likely", "More likely") ~ "More likely",
+    TRUE ~ as.character(.)
+  ))) %>%
+  mutate(across(all_of(purchase_decision_cols), ~factor(., levels = c("0", "Less likely", "Neutral", "More likely"))))
+
+
+for (col in purchase_decision_cols) {
+  cat("\n Nieuwe frequenties voor:", col, "\n")
+  print(table(df_LCMM[[col]]))
+}
+
+
+
+#FEATURE ENGINEERING
+df_LCMM <- df_LCMM %>%
+  mutate(Num_Preferred_AdTypes = rowSums(
+    across(all_of(adv_cols), ~. %in% c("Preference", "Recognition, Preference"))
+  ))
+df_LCMM <- df_LCMM %>%
+  mutate(Num_Preferred_SponsorTypes = rowSums(
+    across(all_of(sponsor_cols_all), ~. %in% c("preference", "expectation, preference"))
+  ))
+df_LCMM <- df_LCMM %>%
+  mutate(Num_Experience_Interests = rowSums(
+    across(all_of(esports_interest_cols), ~. == 1)
+  ))
+df_LCMM <- df_LCMM %>%
+  mutate(Num_Preferred_Brand_Contributions = rowSums(
+    across(all_of(brand_contribution_cols), ~. == 1)
+  ))
+summary(df_LCMM$Num_Preferred_AdTypes)
+summary(df_LCMM$Num_Preferred_SponsorTypes)
+summary(df_LCMM$Num_Experience_Interests)
+summary(df_LCMM$Num_Preferred_Brand_Contributions)
+
+
+
+new_summary_cols <- c(
+  "Num_Preferred_AdTypes",
+  "Num_Preferred_SponsorTypes",
+  "Num_Experience_Interests",
+  "Num_Preferred_Brand_Contributions"
+)
+for (col in new_summary_cols) {
+  cat("\n Frequentietabel voor:", col, "\n")
+  print(table(df_LCMM[[col]]))
+}
+zero_props_summary <- sapply(df_LCMM[new_summary_cols], function(col) mean(col == 0, na.rm = TRUE))
+print(round(zero_props_summary, 4))
+
+
+nzv_result <- nearZeroVar(df_LCMM[new_summary_cols], saveMetrics = TRUE)
+
+print(nzv_result)
+
+
+
+peripheral_cols <- names(df_LCMM)[startsWith(names(df_LCMM), "Peripheral_Brand_Awareness_")]
+component_cols  <- names(df_LCMM)[startsWith(names(df_LCMM), "Component_Brand_Awareness_")]
+
+
+df_LCMM <- df_LCMM %>%
+  mutate(
+    Nr_PeripheralBrands_Aware = rowSums(across(all_of(peripheral_cols), ~. == 1)),
+    Nr_ComponentBrands_Aware  = rowSums(across(all_of(component_cols),  ~. == 1))
+  )
+
+summary(df_LCMM$Nr_PeripheralBrands_Aware)
+summary(df_LCMM$Nr_ComponentBrands_Aware)
+
+
+brand_confidence_cols <- c(
+  "Acer", "Alienware", "ASUS", "Bose", "Dell", "Gigabyte", "HP", "Lenovo", "Logitech",
+  "Logitech_G", "MSI", "Razer", "Samsung", "Intel", "AMD", "NVIDIA", "Kingston", 
+  "Seagate", "Toshiba"
+)
+
+df_LCMM <- df_LCMM %>%
+  mutate(
+    NrBrands_Confident = rowSums(across(all_of(brand_confidence_cols), ~. %in% c("confident", "very confident"))),
+    NrBrands_Neutral   = rowSums(across(all_of(brand_confidence_cols), ~. == "neutral")),
+    NrBrands_Unconfident = rowSums(across(all_of(brand_confidence_cols), ~. %in% c("unconfident", "very unconfident")))
+  )
+
+summary(df_LCMM$NrBrands_Confident)
+summary(df_LCMM$NrBrands_Neutral)
+summary(df_LCMM$NrBrands_Unconfident)
+
+table(df_LCMM$NrBrands_Confident)
+
+
+
+#GROUP CATEGORIES
+df_LCMM$Grouped_AdTypes <- dplyr::case_when(
+  df_LCMM$Num_Preferred_AdTypes == 0 ~ "0",
+  df_LCMM$Num_Preferred_AdTypes == 1 ~ "1",
+  df_LCMM$Num_Preferred_AdTypes == 2 ~ "2",
+  df_LCMM$Num_Preferred_AdTypes == 3 ~ "3",
+  df_LCMM$Num_Preferred_AdTypes >= 4 ~ "4+"
+)
+
+
+df_LCMM$Grouped_AdTypes <- factor(df_LCMM$Grouped_AdTypes, levels = c("0", "1", "2", "3", "4+"))
+
+
+df_LCMM$Grouped_SponsorTypes <- dplyr::case_when(
+  df_LCMM$Num_Preferred_SponsorTypes == 0 ~ "0",
+  df_LCMM$Num_Preferred_SponsorTypes == 1 ~ "1",
+  df_LCMM$Num_Preferred_SponsorTypes == 2 ~ "2",
+  df_LCMM$Num_Preferred_SponsorTypes == 3 ~ "3",
+  df_LCMM$Num_Preferred_SponsorTypes >= 4 ~ "4+"
+)
+
+df_LCMM$Grouped_SponsorTypes <- factor(df_LCMM$Grouped_SponsorTypes, levels = c("0", "1", "2", "3", "4+"))
+
+
+
+df_LCMM$Grouped_ExperienceInterest <- dplyr::case_when(
+  df_LCMM$Num_Experience_Interests == 0 ~ "0",
+  df_LCMM$Num_Experience_Interests == 1 ~ "1",
+  df_LCMM$Num_Experience_Interests == 2 ~ "2",
+  df_LCMM$Num_Experience_Interests == 3 ~ "3",
+  df_LCMM$Num_Experience_Interests >= 4 ~ "4+"
+)
+
+df_LCMM$Grouped_ExperienceInterest <- factor(df_LCMM$Grouped_ExperienceInterest, levels = c("0", "1", "2", "3", "4+"))
+
+
+df_LCMM$Grouped_BrandContributions <- dplyr::case_when(
+  df_LCMM$Num_Preferred_Brand_Contributions == 0 ~ "0",
+  df_LCMM$Num_Preferred_Brand_Contributions == 1 ~ "1",
+  df_LCMM$Num_Preferred_Brand_Contributions == 2 ~ "2",
+  df_LCMM$Num_Preferred_Brand_Contributions == 3 ~ "3",
+  df_LCMM$Num_Preferred_Brand_Contributions >= 4 ~ "4+"
+)
+
+df_LCMM$Grouped_BrandContributions <- factor(df_LCMM$Grouped_BrandContributions, levels = c("0", "1", "2", "3", "4+"))
+
+
+
+df_LCMM$Grouped_PeripheralBrands <- dplyr::case_when(
+  df_LCMM$Nr_PeripheralBrands_Aware == 0 ~ "Not aware",
+  df_LCMM$Nr_PeripheralBrands_Aware %in% 1:2 ~ "Slightly aware",
+  df_LCMM$Nr_PeripheralBrands_Aware %in% 3:4 ~ "Moderately aware",
+  df_LCMM$Nr_PeripheralBrands_Aware %in% 5:7 ~ "Aware",
+  df_LCMM$Nr_PeripheralBrands_Aware >= 8 ~ "Highly aware"
+)
+
+df_LCMM$Grouped_PeripheralBrands <- factor(
+  df_LCMM$Grouped_PeripheralBrands,
+  levels = c("Not aware", "Slightly aware", "Moderately aware", "Aware", "Highly aware")
+)
+
+
+df_LCMM$Grouped_ComponentBrands <- dplyr::case_when(
+  df_LCMM$Nr_ComponentBrands_Aware == 0 ~ "Not aware",
+  df_LCMM$Nr_ComponentBrands_Aware %in% 1:2 ~ "Slightly aware",
+  df_LCMM$Nr_ComponentBrands_Aware %in% 3:4 ~ "Moderately aware",
+  df_LCMM$Nr_ComponentBrands_Aware %in% 5:7 ~ "Aware",
+  df_LCMM$Nr_ComponentBrands_Aware >= 8 ~ "Highly aware"
+)
+
+df_LCMM$Grouped_ComponentBrands <- factor(
+  df_LCMM$Grouped_ComponentBrands,
+  levels = c("Not aware", "Slightly aware", "Moderately aware", "Aware", "Highly aware")
+)
+
+
+df_LCMM$Grouped_Confident <- dplyr::case_when(
+  df_LCMM$NrBrands_Confident == 0 ~ "Not confident",
+  df_LCMM$NrBrands_Confident %in% 1:2 ~ "Slightly confident",
+  df_LCMM$NrBrands_Confident %in% 3:4 ~ "Moderately confident",
+  df_LCMM$NrBrands_Confident %in% 5:7 ~ "Confident",
+  df_LCMM$NrBrands_Confident >= 8 ~ "Highly confident"
+)
+df_LCMM$Grouped_Confident <- factor(
+  df_LCMM$Grouped_Confident,
+  levels = c("Not confident", "Slightly confident", "Moderately confident", "Confident", "Highly confident")
+)
+
+df_LCMM$Grouped_Unconfident <- dplyr::case_when(
+  df_LCMM$NrBrands_Unconfident == 0 ~ "Not unconfident",
+  df_LCMM$NrBrands_Unconfident %in% 1:2 ~ "Slightly unconfident",
+  df_LCMM$NrBrands_Unconfident %in% 3:4 ~ "Moderately unconfident",
+  df_LCMM$NrBrands_Unconfident %in% 5:7 ~ "Unconfident",
+  df_LCMM$NrBrands_Unconfident >= 8 ~ "Highly unconfident"
+)
+df_LCMM$Grouped_Unconfident <- factor(
+  df_LCMM$Grouped_Unconfident,
+  levels = c("Not unconfident", "Slightly unconfident", "Moderately unconfident", "Unconfident", "Highly unconfident")
+)
+
+df_LCMM$Grouped_Neutral <- dplyr::case_when(df_LCMM$NrBrands_Neutral == 0 ~ "0",
+                                            df_LCMM$NrBrands_Neutral %in% 1:2 ~ "1–2",
+                                            df_LCMM$NrBrands_Neutral %in% 3:4 ~ "3–4",
+                                            df_LCMM$NrBrands_Neutral %in% 5:7 ~ "5–7",
+                                            df_LCMM$NrBrands_Neutral >= 8 ~ "8+"
+)
+
+df_LCMM$Grouped_Neutral <- factor(
+  df_LCMM$Grouped_Neutral,
+  levels = c("0", "1–2", "3–4", "5–7", "8+")
+)
+
+
+
+########DONT TAKE INTO ACCOUNT:THIS WAS AFTER THE DISCRIMINATIVE SELECTION VIA ELBOW METHOD
+adv_lvls    <- c("0", "Recognition", "Preference", "Recognition, Preference")
+spon_lvls   <- c("0", "expectation", "preference", "expectation, preference")
+
+df_LCMM2 <- df_LCMM %>%
+  mutate(
+    BC_EventSupport = rowSums(across(all_of(c(
+      "Prefered_Brand_Contributions_Broadcast_events",
+      "Prefered_Brand_Contributions_Organise_events",
+      "Prefered_Brand_Contributions_Sponsor_events",
+      "Prefered_Brand_Contributions_Supply_events_e_g___with_tech__food__or_other_items_",
+      "Prefered_Brand_Contributions_Finance_events"
+    )), ~ as.integer(as.character(.))), na.rm=TRUE),
+    BC_EventSupport = factor(if_else(BC_EventSupport>0, 1, 0), levels=0:1),
+
+    BC_FinancialSupport = rowSums(across(all_of(c(
+      "Prefered_Brand_Contributions_Finance_events",
+      "Prefered_Brand_Contributions_Finance___sponsor_content_creators"
+    )), ~ as.integer(as.character(.))), na.rm=TRUE),
+    BC_FinancialSupport = factor(if_else(BC_FinancialSupport>0, 1, 0), levels=0:1),
+
+    BC_PrizeRewards = rowSums(across(all_of(c(
+      "Prefered_Brand_Contributions_Give_other_prizes",
+      "Prefered_Brand_Contributions_Give_cash_prizes"
+    )), ~ as.integer(as.character(.))), na.rm=TRUE),
+    BC_PrizeRewards = factor(if_else(BC_PrizeRewards>0, 1, 0), levels=0:1),
+
+    BC_Sponsorship = rowSums(across(all_of(c(
+      "Prefered_Brand_Contributions_Sponsor_a_player___team",
+      "Prefered_Brand_Contributions_Finance___sponsor_content_creators",
+      "Prefered_Brand_Contributions_Sponsor_events"
+    )), ~ as.integer(as.character(.))), na.rm=TRUE),
+    BC_Sponsorship = factor(if_else(BC_Sponsorship>0, 1, 0), levels=0:1),
+
+    BC_Creation = rowSums(across(all_of(c(
+      "Prefered_Brand_Contributions_Create_content_about_esports",
+      "Prefered_Brand_Contributions_Create_products_tailored_to_esports"
+    )), ~ as.integer(as.character(.))), na.rm=TRUE),
+    BC_Creation = factor(if_else(BC_Creation>0, 1, 0), levels=0:1)
+  ) %>%
+  
+
+  mutate(
+    # eerst codeer elk als integer 1–4
+    adv_Traditional_code = pmax(
+      as.integer(Advertising),
+      as.integer(Commercial_breaks)
+    ),
+    adv_GraphicOverlay_code = as.integer(Graphical_inserts),
+    adv_Embedded_code = pmax(
+      as.integer(In_game_advertising),
+      as.integer(Logo_placement),
+      as.integer(Product_placement)
+    ),
+    adv_HostSegment_code = pmax(
+      as.integer(Shoutouts),
+      as.integer(Sponsored_segments)
+    ),
+
+    Ad_Traditional_Spots    = factor(adv_Traditional_code,     levels=1:4, labels=adv_lvls),
+    Ad_Graphic_Overlay      = factor(adv_GraphicOverlay_code,  levels=1:4, labels=adv_lvls),
+    Ad_Embedded_Branding    = factor(adv_Embedded_code,        levels=1:4, labels=adv_lvls),
+    Ad_Host_Segment         = factor(adv_HostSegment_code,     levels=1:4, labels=adv_lvls)
+  ) %>%
+  
+
+  mutate(
+    spon_GamingTech_code = pmax(
+      as.integer(Video_game_publishers),
+      as.integer(Gaming_tech___devices__e_g___technology_products_designed_specifically_for_gaming_)
+    ),
+    spon_GeneralTechTelecom_code = pmax(
+      as.integer(Non_gaming_tech___devices_e_g___technology_products_that_are_not_designed_specifically_for_gaming_),
+      as.integer(Telecoms)
+    ),
+    spon_Mobility_code = as.integer(Automotive),
+    spon_FinanceBetting_code = pmax(
+      as.integer(Financial_Services),
+      as.integer(Cryptocurrency),
+      as.integer(Betting___Gambling)
+    ),
+    spon_RetailApparel_code = pmax(
+      as.integer(Retail),
+      as.integer(Clothing___Fashion)
+    ),
+    spon_FoodHospitality_code = pmax(
+      as.integer(Food___Drink),
+      as.integer(Restaurants)
+    ),
+    spon_PersonalCare_code = as.integer(Self_care___Grooming___Deodorant),
+
+    Spon_GamingTech         = factor(spon_GamingTech_code,         levels=1:4, labels=spon_lvls),
+    Spon_GeneralTechTelecom = factor(spon_GeneralTechTelecom_code, levels=1:4, labels=spon_lvls),
+    Spon_Mobility           = factor(spon_Mobility_code,           levels=1:4, labels=spon_lvls),
+    Spon_FinanceBetting     = factor(spon_FinanceBetting_code,     levels=1:4, labels=spon_lvls),
+    Spon_RetailApparel      = factor(spon_RetailApparel_code,      levels=1:4, labels=spon_lvls),
+    Spon_FoodHospitality    = factor(spon_FoodHospitality_code,    levels=1:4, labels=spon_lvls),
+    Spon_PersonalCare       = factor(spon_PersonalCare_code,       levels=1:4, labels=spon_lvls)
+  ) %>%
+  select(-ends_with("_code"))
+
+
+
+
+#CLUSTERING
+lcmm_vars <- c(
+  "Advertising", "Commercial_breaks", "In_game_advertising", "Logo_placement",
+  "Product_placement", "Sponsored_segments", "Food___Drink",
+  "Video_game_publishers", "Gaming_tech___devices__e_g___technology_products_designed_specifically_for_gaming_",
+  "Non_gaming_tech___devices_e_g___technology_products_that_are_not_designed_specifically_for_gaming_",
+  "Telecoms", "Clothing___Fashion", "ExperienceInterest_CompetitivePart",
+  "ExperienceInterest_DirectPro_PlayerAccess",
+  "ExperienceInterest_ExclusiveRewards_and_Merchandise", 'BC_EventSupport', "BC_FinancialSupport", "BC_PrizeRewards", "BC_Sponsorship", "BC_Creation",
+  "PositiveImage_Brand", "WantToKnowMore_Brand", "PreferOverCompeting_Brands",
+  "FollowSocialMedia_Brand", "Recommend_Brand", "Interact_Brand", "ConsiderFuturePurch_Brand",
+  "PreferredMethod_FinancialSupport", "InfluenceSponsorship_TeamSupport", "Peripheral_Decision_Factors_Brand_name",
+  "ReasonsForSupport_brandingvalues_ambassadors", "PurchDecision_SupportEsportsTeam_Streamers",
+  "PurchDecision_OwnedByLikedGamerPlayer", "PurchDecision_InGameBenefits", "Grouped_AdTypes",
+  "Grouped_SponsorTypes", "Grouped_ExperienceInterest", "Grouped_BrandContributions",
+  "Grouped_PeripheralBrands", "Grouped_ComponentBrands", "Grouped_Confident", "Grouped_Neutral"
+)
+
+#BIC, AIC, ICL, ENTROPY
+df_subset <- df_LCMM2[, lcmm_vars]
+df_subset[] <- lapply(df_subset, function(x) if(!is.factor(x)) factor(x) else x)
+f <- as.formula(paste0("cbind(", paste(lcmm_vars, collapse=","), ") ~ 1"))
+
+entropy_from_posterior <- function(post){
+  -sum(post * log(post + 1e-10)) / nrow(post)
+}
+
+results_list <- list()
+fit_stats <- data.frame(
+  Classes       = integer(),
+  LogLikelihood = numeric(),
+  AIC           = numeric(),
+  BIC           = numeric(),
+  Entropy       = numeric(),
+  stringsAsFactors = FALSE
+)
+failed_ks <- c()
+
+for(k in 3:7){
+
+  lca_k <- tryCatch({
+    poLCA(f,
+          data    = df_subset,
+          nclass  = k,
+          maxiter = 500,
+          verbose = FALSE,
+          graphs  = FALSE)
+  }, error = function(e){
+    warning(sprintf("poLCA faalde voor k=%d: %s", k, e$message))
+    NULL
+  })
+
+  if(is.null(lca_k)){
+    failed_ks <- c(failed_ks, k)
+    next
+  }
+  
+  results_list[[as.character(k)]] <- lca_k
+  ent <- entropy_from_posterior(lca_k$posterior)
+  
+  fit_stats <- rbind(fit_stats, data.frame(
+    Classes       = k,
+    LogLikelihood = lca_k$llik,
+    AIC           = lca_k$aic,
+    BIC           = lca_k$bic,
+    Entropy       = ent
+  ))
+}
+
+N <- nrow(df_subset)
+fit_stats$ICL <- fit_stats$BIC + 2 * N * fit_stats$Entropy
+
+cat("\nModellen gelukt voor k =", paste(fit_stats$Classes, collapse=", "), "\n")
+if(length(failed_ks)){
+  cat("Modellen mislukt voor k =", paste(failed_ks, collapse=", "), "\n")
+}
+
+print(fit_stats)
+
+
+
+#class sizes 
+class_sizes_df <- bind_rows(
+  lapply(names(results_list), function(k){
+    mod <- results_list[[k]]
+    tab <- as.data.frame(table(Class = mod$predclass), stringsAsFactors=FALSE)
+    data.frame(
+      k     = as.integer(k),
+      Class = tab$Class,
+      Size  = tab$Freq
+    )
+  })
+)
+
+#Entropy per respondent
+resp_ent_df <- bind_rows(
+  lapply(names(results_list), function(k){
+    post <- results_list[[k]]$posterior
+    ent  <- -rowSums(post * log(post + 1e-10))
+    data.frame(
+      k       = as.integer(k),
+      Entropy = ent
+    )
+  })
+)
+
+#Avg entropy per class
+class_ent_df <- bind_rows(
+  lapply(names(results_list), function(k){
+    mod  <- results_list[[k]]
+    post <- mod$posterior
+    ent  <- -rowSums(post * log(post + 1e-10))
+    df   <- data.frame(
+      k       = as.integer(k),
+      Class   = mod$predclass,
+      Entropy = ent
+    )
+    df %>%
+      group_by(k, Class) %>%
+      summarise(AvgEntropy = mean(Entropy), .groups="drop")
+  })
+)
+
+#class sizes plot
+p1 <- ggplot(class_sizes_df, aes(x=factor(k), y=Size, fill=factor(Class))) +
+  geom_col() +
+  labs(
+    x    = "Aantal klassen (k)",
+    y    = "Aantal respondenten",
+    fill = "Klasse"
+  ) +
+  theme_minimal() +
+  ggtitle("Klasse-groottes per model (k = 2…15)")
+print(p1)
+
+#Respondent-entropy plot
+p2 <- ggplot(resp_ent_df, aes(x=factor(k), y=Entropy)) +
+  geom_boxplot(outlier.size=0.5) +
+  labs(
+    x = "Aantal klassen (k)",
+    y = "Respondent-entropie"
+  ) +
+  theme_minimal() +
+  ggtitle("Distributie van entropie per respondent voor elk k")
+print(p2)
+
+#Entropy-class plot
+p3 <- ggplot(class_ent_df, aes(x=factor(k), y=AvgEntropy, group=Class, color=factor(Class))) +
+  geom_line() +
+  geom_point(size=1) +
+  labs(
+    x     = "Aantal klassen (k)",
+    y     = "Gemiddelde entropie per klasse",
+    color = "Klasse"
+  ) +
+  theme_minimal() +
+  ggtitle("Gemiddelde entropie per klasse over modellen")
+print(p3)
+
+
+
+cert_df <- bind_rows(lapply(names(results_list), function(k){
+  post <- results_list[[k]]$posterior
+  maxp <- apply(post, 1, max)
+  tibble(k = as.integer(k), Cert = maxp)
+}))
+cert_summary <- cert_df %>%
+  group_by(k) %>%
+  summarise(pct_cert = mean(Cert > 0.8))
+print(cert_summary)
+
+
+profile_diff <- function(mod){
+  probs <- mod$probs  
+  mats <- lapply(probs, function(x) as.vector(x))
+  combos <- combn(length(mats),2)
+  diffs <- apply(combos,2, function(pair){
+    mean(abs(mats[[pair[1]]] - mats[[pair[2]]]))
+  })
+  mean(diffs) 
+}
+sep_df <- tibble(k=2:12,
+                 sep=sapply(results_list, profile_diff))
+print(sep_df)
+
+biv_resid <- function(v1, v2, data) {
+  tbl <- table(data[[v1]], data[[v2]])
+  chi <- suppressWarnings(chisq.test(tbl, simulate.p.value=FALSE))
+  max(abs(chi$stdres), na.rm=TRUE)
+}
+
+bires_df_all <- bind_rows(
+  lapply(names(results_list), function(k){
+    k <- as.integer(k)
+    mod <- results_list[[as.character(k)]]
+    # alleen doorgaan als model bestaat
+    if(is.null(mod)) return(NULL)
+    vars <- names(mod$probs)
+    pairs <- combn(vars, 2, simplify=FALSE)
+    df <- map_df(pairs, ~{
+      tibble(
+        k             = k,
+        var1          = .x[1],
+        var2          = .x[2],
+        max_std_resid = biv_resid(.x[1], .x[2], df_subset)
+      )
+    })
+    df
+  })
+)
+
+viol_counts <- bires_df_all %>%
+  filter(max_std_resid > 3) %>%
+  count(k, name="n_violations")
+
+print(viol_counts)
+
+
+
+#BEST LCA MODEL
+df_subset <- df_LCMM2[, lcmm_vars]
+df_subset[] <- lapply(df_subset, function(x) if(!is.factor(x)) factor(x) else x)
+f <- as.formula(paste0("cbind(", paste(lcmm_vars, collapse=","), ") ~ 1"))
+set.seed(123)  
+lca_4 <- poLCA(
+  formula = f,
+  data    = df_subset,
+  nclass  = 6,
+  maxiter = 1000,        
+  verbose = TRUE,
+  graphs  = TRUE        
+)
+
+print(lca_4)
+
+
+
+#Discriminative value of each variable
+lca_k <- results_list[["5"]]  
+probs_list <- lca_4$probs  
+
+item_deltas <- lapply(names(probs_list), function(item){
+  mat <- probs_list[[item]]  
+  pairs <- combn(nrow(mat), 2, simplify = FALSE)
+  delta_cd <- sapply(pairs, function(pr){
+    c <- pr[1]; d <- pr[2]
+    max(abs(mat[c,] - mat[d,]))
+  })
+  
+  tibble(
+    item      = item,
+    mean_delta = mean(delta_cd),
+    max_delta  = max(delta_cd)
+  )
+})
+
+delta_df <- bind_rows(item_deltas) %>%
+  arrange(desc(mean_delta))
+
+print(delta_df)
+
+
+
+#Discriminative value plot 
+delta_df <- delta_df %>%
+  mutate(
+    item_wrapped = str_wrap(item, width = 20)
+  ) %>%
+  arrange(mean_delta) %>%
+  mutate(item_wrapped = factor(item_wrapped, levels = item_wrapped))
+
+plot_df <- delta_df %>%
+  dplyr::select(item_wrapped, mean_delta, max_delta)%>%
+  pivot_longer(
+    cols      = c(mean_delta, max_delta),
+    names_to  = "type",
+    values_to = "delta"
+  ) %>%
+  mutate(type = recode(type,
+                       mean_delta = "Mean Δ",
+                       max_delta  = "Max Δ"))
+
+ggplot(plot_df, aes(x = delta, y = item_wrapped)) +
+  # Alleen de Mean Δ als balken
+  geom_col(
+    data  = filter(plot_df, type == "Mean Δ"),
+    aes(),
+    fill   = "steelblue",
+    width  = 0.6
+  ) +
+  # Alleen de Max Δ als punten
+  geom_point(
+    data  = filter(plot_df, type == "Max Δ"),
+    aes(),
+    color  = "firebrick",
+    size   = 2
+  ) +
+  facet_grid(
+    rows   = vars(type),
+    scales = "free_x",
+    space  = "free"
+  ) +
+  coord_cartesian(expand = FALSE) +
+  labs(
+    x        = expression(Delta[j]),
+    y        = NULL,
+    title    = expression("Item-level discriminatie: Mean"~Delta[j]~"en Max"~Delta[j]),
+    subtitle = "Mean Δ = gemiddelde |π[j|c]−π[j|d]|; Max Δ = grootste zo’n verschil"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    strip.text.y        = element_text(angle = 0, face = "bold"),
+    panel.grid.major.y  = element_blank(),
+    panel.grid.minor.y  = element_blank(),
+    axis.text.y         = element_text(size = 8),
+    axis.text.x         = element_text(size = 10),
+    plot.title          = element_text(face = "bold"),
+    plot.subtitle       = element_text(size = 9),
+    panel.spacing.y     = unit(1, "lines")
+  )
+
+
+plot_df <- delta_df %>%
+  arrange(desc(mean_delta)) %>%
+  mutate(rank = row_number())
+
+d1 <- diff(plot_df$mean_delta)            
+d2 <- diff(d1)                            
+elbow_idx <- which.max(-d2) + 1          
+elbow_val <- plot_df$mean_delta[elbow_idx]
+
+# 2) teken de elbow-plot met lijnen
+ggplot(plot_df, aes(x = rank, y = mean_delta)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "steelblue", size = 2) +
+  geom_vline(xintercept = elbow_idx, linetype = "dashed", color = "darkgrey") +
+  geom_hline(yintercept = elbow_val,  linetype = "dashed", color = "darkgrey") +
+  annotate("text", x = elbow_idx + 2, y = max(plot_df$mean_delta),
+           label = paste0("elbow@\n rank=", elbow_idx, "\nΔ=", round(elbow_val, 2)),
+           hjust = 0, vjust = 1, size = 3.5) +
+  labs(
+    x        = "Item rangorde (hoog → laag discriminatie)",
+    y        = expression(Mean~Delta[j]),
+    title    = "Elbow‐plot met automatisch gedetecteerd knikpunt",
+    subtitle = "Verticale/l horizontale stippellijnen op de drempelwaarde"
+  ) +
+  theme_minimal(base_size = 12)
+
+
+#bad entropy % per class 
+posterior_probs <- lca_4$posterior
+class_entropy_vec <- -rowSums(posterior_probs * log(posterior_probs + 1e-10))
+
+q <- quantile(class_entropy_vec, probs = c(0.90, 0.95))
+print(q)
+
+#95 percentile as cutoff
+cutoff_slecht <- q[["95%"]]
+
+slechte_cases <- which(class_entropy_vec > cutoff_slecht)
+cat("Aantal respondenten met H > 95e percentiel:", length(slechte_cases), "\n")
+
+poor_classes <- lca_4$predclass[slechte_cases]
+table(poor_classes)
+
+
+df_entropy <- tibble(
+  Respondent = 1:length(class_entropy_vec),
+  Entropy = class_entropy_vec,
+  Class   = factor(lca_4$predclass)
+)
+
+df_entropy %>%
+  filter(Entropy > cutoff_slecht) %>%
+  count(Class) %>%
+  arrange(desc(n))
+
+df_entropy %>%
+  group_by(Class) %>%
+  summarise(
+    totaal     = n(),
+    slecht     = sum(Entropy > cutoff_slecht),
+    pct_slecht = round(slecht / totaal * 100, 1)
+  ) %>%
+  arrange(desc(pct_slecht))
+
+
+summary(class_entropy_vec)
+hist(class_entropy_vec, breaks = 50, col = "skyblue",
+     main = "Entropy per respondent", xlab = "Entropy", ylab = "Aantal respondenten")
+
+
+
+#posterior chance for own class
+post_for_pred <- posterior_probs[cbind(1:nrow(posterior_probs), lca_3$predclass)]
+
+df_entropy <- df_entropy %>%
+  mutate(APP_ind = post_for_pred)
+
+df_entropy_summary <- df_entropy %>%
+  group_by(Class) %>%
+  summarise(
+    AantalRespondenten = n(),
+    GemiddeldeAPP = round(mean(APP_ind), 4),
+    MedianAPP     = round(median(APP_ind), 4),
+    SD_APP        = round(sd(APP_ind), 4)
+  ) %>%
+  arrange(desc(GemiddeldeAPP))
+
+print(df_entropy_summary)
+
+
+
+ggplot(df_entropy, aes(x = APP_ind, fill = Class)) +
+  geom_histogram(bins = 30, alpha = 0.7, position = "identity") +
+  labs(title = "Verdeling posterior probabilities", x = "APP", y = "Aantal respondenten") +
+  theme_minimal()
+mean(df_entropy$APP_ind == 1)  # >0.8 = zorgwekkend
+
+entropy_compare <- sapply(results_list[c("3", "4", "5", "6", "7", "8", "9")], function(m){
+  post <- m$posterior
+  ent <- -rowSums(post * log(post + 1e-10))
+  c(MeanEntropy = mean(ent), Pct_APP1 = mean(apply(post, 1, max) == 1))
+})
+print(round(entropy_compare, 3))
+
+
+plot(results_list[["7"]])
+plot(results_list[["8"]])
+
+ent_7 <- -rowSums(results_list[["7"]]$posterior * log(results_list[["7"]]$posterior + 1e-10))
+ent_8 <- -rowSums(results_list[["8"]]$posterior * log(results_list[["8"]]$posterior + 1e-10))
+boxplot(ent_7, ent_8, names = c("k=7", "k=8"), main = "Entropy per respondent")
+
+
+
+
+
+
+#Profiling
+df_cluster1_profile <- df_subset %>%
+  mutate(Class = factor(lca_3$predclass))
+sapply(df_cluster1_profile[lcmm_vars], class)
+
+df_long_profile <- df_cluster1_profile %>%
+  pivot_longer(cols = all_of(lcmm_vars), names_to = "Variable", values_to = "Value") %>%
+  group_by(Class, Variable, Value) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Class, Variable) %>%
+  mutate(pct = round(100 * n / sum(n), 1)) %>%
+  arrange(Variable, Class)
+
+print(head(df_long_profile, 20))
+
+top_bottom_profile <- df_long_profile %>%
+  group_by(Class) %>%
+  slice_max(order_by = pct, n = 3, with_ties = FALSE) %>%
+  bind_rows(
+    df_long_profile %>%
+      group_by(Class) %>%
+      slice_min(order_by = pct, n = 3, with_ties = FALSE)
+  ) %>%
+  ungroup() %>%
+  mutate(label = paste(Variable, Value, sep = ": "))
+
+# Plot
+ggplot(top_bottom_profile, aes(x = reorder(label, pct), y = pct, fill = Class)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  facet_wrap(~ Class, scales = "free_y") +
+  labs(title = "Top & bottom frequenties per klasse",
+       x = "Variabele: Waarde", y = "Procent") +
+  theme_minimal(base_size = 1)
+
+
+ggplot(df_long_profile_top, aes(x = Class, y = paste(Variable, Value, sep = ": "), fill = pct)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "darkblue") +
+  labs(title = "Distributie van antwoordcategorieën per klasse",
+       x = "Klasse", y = "Variabele: Waarde", fill = "%") +
+  theme_minimal(base_size = 11)
+
+
+dominant_values <- df_long_profile_top %>%
+  group_by(Class, Variable) %>%
+  slice_max(order_by = pct, n = 1, with_ties = FALSE) %>%
+  arrange(Class, desc(pct))
+
+print(dominant_values)
+
+
+top_delta_vars <- delta_df %>%
+  filter(mean_delta >= 0.5) %>%
+  pull(item)
+
+df_long_profile_top <- df_long_profile %>%
+  filter(Variable %in% top_delta_vars)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Hier heb ik alle variabelen na knik in elbow plot gegroepeerd of weggelaten
+
+selected_df <- df_LCMM %>% select(all_of(lcmm_vars))
+
+library(poLCA)
+set.seed(123)
+results_list <- lapply(k_range, function(k){
+  formula <- as.formula(paste("cbind(", paste(names(selected_df), collapse = ", "), ")~1"))
+  poLCA(formula, data = selected_df, nclass = k, maxiter = 1000, verbose = FALSE)
+})
+names(results_list) <- as.character(k_range)
+
+#full analysis again with less variables 
+
+#class size
+class_sizes_df <- bind_rows(
+  lapply(names(results_list), function(k){
+    mod <- results_list[[k]]
+    tab <- as.data.frame(table(Class = mod$predclass), stringsAsFactors=FALSE)
+    data.frame(
+      k     = as.integer(k),
+      Class = tab$Class,
+      Size  = tab$Freq
+    )
+  })
+)
+
+#Respondent_entropy
+resp_ent_df <- bind_rows(
+  lapply(names(results_list), function(k){
+    post <- results_list[[k]]$posterior
+    ent  <- -rowSums(post * log(post + 1e-10))
+    data.frame(k = as.integer(k), Entropy = ent)
+  })
+)
+
+#entropy-class
+class_ent_df <- bind_rows(
+  lapply(names(results_list), function(k){
+    mod  <- results_list[[k]]
+    post <- mod$posterior
+    ent  <- -rowSums(post * log(post + 1e-10))
+    df   <- data.frame(k = as.integer(k), Class = mod$predclass, Entropy = ent)
+    df %>% group_by(k, Class) %>% summarise(AvgEntropy = mean(Entropy), .groups="drop")
+  })
+)
+
+#certainty >0.8
+cert_df <- bind_rows(lapply(names(results_list), function(k){
+  post <- results_list[[k]]$posterior
+  maxp <- apply(post, 1, max)
+  tibble(k = as.integer(k), Cert = maxp)
+}))
+
+cert_summary <- cert_df %>% group_by(k) %>% summarise(pct_cert = mean(Cert > 0.8))
+
+# Profile differentiation
+profile_diff <- function(mod){
+  probs <- mod$probs
+  mats <- lapply(probs, as.vector)
+  combos <- combn(length(mats),2)
+  diffs <- apply(combos,2, function(pair){ mean(abs(mats[[pair[1]]] - mats[[pair[2]]])) })
+  mean(diffs)
+}
+sep_df <- tibble(k = k_range, sep = sapply(results_list, profile_diff))
+
+# Bivariate residuals
+biv_resid <- function(v1, v2, data) {
+  tbl <- table(data[[v1]], data[[v2]])
+  chi <- suppressWarnings(chisq.test(tbl, simulate.p.value=FALSE))
+  max(abs(chi$stdres), na.rm=TRUE)
+}
+
+bires_df_all <- bind_rows(
+  lapply(names(results_list), function(k){
+    k <- as.integer(k)
+    mod <- results_list[[as.character(k)]]
+    vars <- names(mod$probs)
+    pairs <- combn(vars, 2, simplify=FALSE)
+    df <- map_df(pairs, ~{
+      tibble(k = k, var1 = .x[1], var2 = .x[2], max_std_resid = biv_resid(.x[1], .x[2], selected_df))
+    })
+    df
+  })
+)
+
+viol_counts <- bires_df_all %>% filter(max_std_resid > 3) %>% count(k, name="n_violations")
+
+# Item-level discrimination
+item_discrimination <- function(mod){
+  probs_list <- mod$probs
+  item_deltas <- lapply(names(probs_list), function(item){
+    mat <- probs_list[[item]]
+    pairs <- combn(nrow(mat), 2, simplify = FALSE)
+    delta_cd <- sapply(pairs, function(pr){
+      c <- pr[1]; d <- pr[2]
+      max(abs(mat[c,] - mat[d,]))
+    })
+    tibble(item = item, mean_delta = mean(delta_cd), max_delta  = max(delta_cd))
+  })
+  bind_rows(item_deltas) %>% arrange(desc(mean_delta))
+}
+
+k_selected <- "8"
+delta_df <- item_discrimination(results_list[[k_selected]])
+
+
+# plot class sizes 
+p1 <- ggplot(class_sizes_df, aes(x=factor(k), y=Size, fill=factor(Class))) +
+  geom_col() + theme_minimal() +
+  labs(x="Aantal klassen (k)", y="Aantal respondenten", fill="Klasse",
+       title="Klasse-groottes voor geselecteerde modellen")
+print(p1)
+
+ggplot(class_sizes_df, aes(x=factor(k), y=Size, fill=factor(Class))) +
+  geom_col() + theme_minimal() +
+  labs(x="Aantal klassen (k)", y="Aantal respondenten", fill="Klasse",
+       title="Klasse-groottes voor geselecteerde modellen")
+
+# plot respondent - entropy 
+ggplot(resp_ent_df, aes(x=factor(k), y=Entropy)) +
+  geom_boxplot(outlier.size=0.5) +
+  labs(x="Aantal klassen (k)", y="Respondent-entropie",
+       title="Distributie van entropie per respondent")
+
+# plot entropy - class
+ggplot(class_ent_df, aes(x=factor(k), y=AvgEntropy, group=Class, color=factor(Class))) +
+  geom_line() + geom_point(size=2) +
+  labs(x="Aantal klassen (k)", y="Gemiddelde entropie per klasse", color="Klasse",
+       title="Gemiddelde entropie per klasse")
+
+# Plot Certainty (>0.8)
+ggplot(cert_summary, aes(x=factor(k), y=pct_cert)) +
+  geom_col(fill="steelblue") +
+  labs(x="Aantal klassen (k)", y="Percentage respondenten met certainty > 0.8",
+       title="Certainty van klasse-toewijzingen")
+
+# Plot Profile differentiation (separatie)
+ggplot(sep_df, aes(x=factor(k), y=sep, group=1)) +
+  geom_line(color="steelblue", size=1.2) + geom_point(color="steelblue", size=3) +
+  labs(x="Aantal klassen (k)", y="Gemiddelde profielscheiding",
+       title="Profielscheiding tussen klassen")
+
+# Plot Bivariate residual violations 
+ggplot(viol_counts, aes(x=factor(k), y=n_violations)) +
+  geom_col(fill="firebrick") +
+  labs(x="Aantal klassen (k)", y="Aantal overtredingen (std.res > 3)",
+       title="Bivariate residual overtredingen per model")
+
+# Plot Item-level discriminatie (mean en max delta)
+delta_plot_df <- delta_df %>%
+  mutate(item_wrapped = str_wrap(item, width = 20)) %>%
+  arrange(mean_delta) %>%
+  mutate(item_wrapped = factor(item_wrapped, levels = item_wrapped)) %>%
+  pivot_longer(cols = c(mean_delta, max_delta),
+               names_to = "type", values_to = "delta") %>%
+  mutate(type = recode(type, mean_delta = "Mean Δ", max_delta = "Max Δ"))
+
+ggplot(delta_plot_df, aes(x=delta, y=item_wrapped)) +
+  geom_col(data = filter(delta_plot_df, type == "Mean Δ"), fill="steelblue") +
+  geom_point(data = filter(delta_plot_df, type == "Max Δ"), color="firebrick", size=2) +
+  facet_grid(rows=vars(type), scales="free_x") +
+  labs(x=expression(Delta[j]), y=NULL,
+       title="Item-level discriminatie (Mean Δ en Max Δ)")
+
+# Plot Elbow-plot voor Mean Delta
+plot_df <- delta_df %>% arrange(desc(mean_delta)) %>% mutate(rank=row_number())
+d1 <- diff(plot_df$mean_delta)
+d2 <- diff(d1)
+elbow_idx <- which.max(-d2) + 1
+elbow_val <- plot_df$mean_delta[elbow_idx]
+
+ggplot(plot_df, aes(x=rank, y=mean_delta)) +
+  geom_line(color="steelblue", size=1.2) + geom_point(color="steelblue", size=3) +
+  geom_vline(xintercept=elbow_idx, linetype="dashed", color="grey50") +
+  geom_hline(yintercept=elbow_val, linetype="dashed", color="grey50") +
+  annotate("text", x=elbow_idx+0.5, y=elbow_val, label=paste("Elbow @", elbow_idx),
+           hjust=0, vjust=-1) +
+  labs(x="Item rangorde", y="Mean Δ", title="Elbow-plot voor Mean Δ")
+
+
+#NO BETTER RESULT SO DON4T LEAVE AS MANY VARIABLES OUT
+
+###################################################################
+###################################################################
+#SECOND CLUSTER 
+new_vars <- c(
+  "Purch_Freq_NewVideoGames",
+  "Purch_Freq_Subscr_GamingServices",
+  "Purch_Freq_Donations_Subscr_Streamers_ContentCreators",
+  "Purch_Freq_PlayableCharacters",
+  "Purch_Freq_InGameCurrency",
+  "Purch_Freq_PayToWin",
+  "Purch_Freq_LootBoxes_Packs",
+  "Purch_Freq_CosmeticSkins",
+  "Purch_Freq_Expansions",
+  "Gaming_Purchase_Reason",
+  "PreferredMethod_FinancialSupport",
+  "ConsiderFuturePurch_Brand",
+  "LimitedEditionPurch_EsportsTeam",
+  "LimitedEditionPurch_Streamer",
+  "GamingSpend_NewVideoGames",
+  "GamingSpend_SubscriptionsGamingServices",
+  "GamingSpend_Donations_Subscriptions_Streamers_ContentCreators",
+  "GamingSpend_Content_in_game_purchases",
+  "Clothing_e_g___t_shirts__hoodies__caps_",
+  "Ornaments___Figurines_e_g___statues__plushies__other_figures__mugs_",
+  "Gaming_accessories___peripherals_e_g___gaming_mouse__keyboard__headset__etc_",
+  "Stand_alone_devices",
+  "Posters___Prints_e_g___posters__lore_books__concept_art_",
+  "Digital_Exclusives___NFTs",
+  "Physical_media_e_g___CDs__Blu_rays__physical_games_",
+  "Nieuwe_videogames_bestedingscategorie",
+  "Abonnementen_gamediensten_bestedingscategorie",
+  "Donaties_streamers_bestedingscategorie",
+  "Ingame_aankopen_bestedingscategorie"
+)
+
+for(col in new_vars) {
+  cat("\n===", col, "===\n")
+  print(unique(df_LCMM[[col]]))
+  print(table(df_LCMM[[col]], useNA = "ifany"))
+}
+
+existing_vars <- intersect(new_vars, names(df_LCMM))
+missing_vars  <- setdiff(new_vars, names(df_LCMM))
+cat("Ontbrekende kolommen:\n")
+print(missing_vars)
+
+cat_vars    <- existing_vars[sapply(df_LCMM[existing_vars], function(x)
+  is.character(x) || is.factor(x))]
+num_vars    <- setdiff(existing_vars, cat_vars)
+
+cat("Categorische kolommen (naar factor):\n"); print(cat_vars)
+cat("Numerieke kolommen (laten zoals ze zijn):\n"); print(num_vars)
+
+df_LCMM <- df_LCMM %>%
+  mutate(across(
+    all_of(cat_vars),
+    ~ factor(., levels = unique(.[!is.na(.)]))
+  ))
+
+sapply(df_LCMM[cat_vars], class)
+sapply(df_LCMM[num_vars], class)
+
+#0-count
+zero_props_new <- sapply(df_LCMM[new_vars], function(x) {
+  mean(x == "0" | x == 0, na.rm = TRUE)
+})
+print(round(zero_props_new, 4))
+
+#frequency
+for(col in new_vars) {
+  cat("\nFrequenties voor", col, ":\n")
+  print(table(df_LCMM[[col]], useNA = "ifany"))
+}
+
+#Near‐zero‐variance check
+nzv_new <- nearZeroVar(df_LCMM[new_vars], saveMetrics = TRUE)
+print(nzv_new)
+
+
+#PURCH FREQ
+freq_vars <- c(
+  "Purch_Freq_NewVideoGames",
+  "Purch_Freq_Subscr_GamingServices",
+  "Purch_Freq_Donations_Subscr_Streamers_ContentCreators",
+  "Purch_Freq_PlayableCharacters",
+  "Purch_Freq_InGameCurrency",
+  "Purch_Freq_PayToWin",
+  "Purch_Freq_LootBoxes_Packs",
+  "Purch_Freq_CosmeticSkins",
+  "Purch_Freq_Expansions"
+)
+
+#recode: Weekly + Monthly → At least once per month
+df_LCMM <- df_LCMM %>%
+  mutate(across(
+    all_of(freq_vars),
+    ~ fct_collapse(
+      ., 
+      "At least once per month" = c("Weekly", "Monthly")
+    )
+  ))
+
+for(col in freq_vars) {
+  cat("\nFrequenties voor", col, "na recodering:\n")
+  print(table(df_LCMM[[col]], useNA = "ifany"))
+}
+
+#merge small levels
+df_LCMM <- df_LCMM %>%
+  mutate(Gaming_Purchase_Reason = fct_collapse(
+    Gaming_Purchase_Reason,
+    `Other reason` = c("Other (please specify)",
+                       "To support the developers / publisher")
+  ))
+
+table(df_LCMM$Gaming_Purchase_Reason, useNA = "ifany")
+
+#recode spending categories: too small levels
+spend_vars <- c(
+  "Nieuwe_videogames_bestedingscategorie",
+  "Abonnementen_gamediensten_bestedingscategorie",
+  "Donaties_streamers_bestedingscategorie",
+  "Ingame_aankopen_bestedingscategorie"
+)
+
+df_LCMM <- df_LCMM %>%
+  mutate(across(
+    all_of(spend_vars),
+    ~ fct_collapse(
+      ., 
+      # behoud “0” als eigen categorie
+      "0"                         = "0",
+      # laagste drie levels → “Low spending category”
+      "Low spending category"     = c(
+        "lowest spending category",
+        "2nd lowest spending category",
+        "3rd lowest spending category"
+      ),
+      # middelste drie levels → “Middle spending category”
+      "Middle spending category"  = c(
+        "4rth lowest spending category",
+        "middle spending category",
+        "4rth highest spending category"
+      ),
+      # hoogste drie levels → “High spending category”
+      "High spending category"    = c(
+        "3rd highest spending category",
+        "2nd highest spending category",
+        "highest spending category"
+      )
+    )
+  ))
+
+for(col in spend_vars) {
+  cat("\nFrequenties voor", col, "na samenvoegen:\n")
+  print(table(df_LCMM[[col]], useNA = "ifany"))
+}
+
+#AIC, BIC, ICL, ENTROPY
+df_LCMM_int <- df_LCMM
+
+for (v in new_vars) {
+  if (is.factor(df_LCMM_int[[v]])) {
+    df_LCMM_int[[v]] <- as.integer(df_LCMM_int[[v]])
+  } else if (is.character(df_LCMM_int[[v]])) {
+    df_LCMM_int[[v]] <- as.integer(factor(df_LCMM_int[[v]]))
+  }
+}
+
+df_cluster2 <- df_LCMM[, new_vars]
+
+df_cluster2[] <- lapply(df_cluster2, function(x) {
+  if (!is.factor(x)) factor(x) else x
+})
+
+f2 <- as.formula(paste0("cbind(", paste(new_vars, collapse = ","), ") ~ 1"))
+
+entropy_from_posterior <- function(post){
+  -sum(post * log(post + 1e-10)) / nrow(post)
+}
+
+results_cluster2 <- list()
+fit2_stats <- data.frame(
+  Classes       = integer(),
+  LogLikelihood = numeric(),
+  AIC           = numeric(),
+  BIC           = numeric(),
+  Entropy       = numeric(),
+  stringsAsFactors = FALSE
+)
+failed_k2 <- c()
+
+for(k in 2:8){
+  cat("Model met", k, "klassen...\n")
+  
+  lca_k <- tryCatch({
+    poLCA(f2,
+          data    = df_cluster2,
+          nclass  = k,
+          maxiter = 500,
+          verbose = FALSE,
+          graphs  = FALSE)
+  }, error = function(e){
+    warning(sprintf("poLCA faalde voor k=%d: %s", k, e$message))
+    NULL
+  })
+  
+  if(is.null(lca_k)){
+    failed_k2 <- c(failed_k2, k)
+    next
+  }
+  
+  results_cluster2[[as.character(k)]] <- lca_k
+  ent <- entropy_from_posterior(lca_k$posterior)
+  
+  fit2_stats <- rbind(fit2_stats, data.frame(
+    Classes       = k,
+    LogLikelihood = lca_k$llik,
+    AIC           = lca_k$aic,
+    BIC           = lca_k$bic,
+    Entropy       = ent
+  ))
+}
+
+N2 <- nrow(df_cluster2)
+fit2_stats$ICL <- fit2_stats$BIC + 2 * N2 * fit2_stats$Entropy
+print(fit2_stats)
+
+
+# plot BIC/AIC/Entropy
+png("modelselectie_plot2.png", width=1000, height=800)
+par(mar=c(5,5,4,2))
+plot(fit2_stats$Classes, fit2_stats$BIC, type="b", pch=19, ylab="Fit Metric", xlab="Aantal Klassen", main="Modelselectie (2e cluster)")
+lines(fit2_stats$Classes, fit2_stats$AIC, type="b", col="red", pch=19)
+legend("topright", legend=c("BIC","AIC"), col=c("black","red"), pch=19)
+dev.off()
+
+png("entropy_plot2.png", width=1000, height=800)
+par(mar=c(5,5,4,2))
+plot(fit2_stats$Classes, fit2_stats$Entropy, type="b", pch=19, col="darkgreen",
+     ylab="Entropy", xlab="Aantal Klassen", main="Model Entropy (2e cluster)")
+dev.off()
+
+#ICL
+fit2_stats$ICL <- fit2_stats$BIC + fit2_stats$Entropy * nrow(df_cluster2) * log(length(new_vars))
+
+png("icl_plot2.png", width=1000, height=800)
+par(mar=c(5,5,4,2))
+plot(fit2_stats$Classes, fit2_stats$ICL, type="b", pch=19, col="purple",
+     ylab="ICL", xlab="Aantal Klassen", main="ICL per model (2e cluster)")
+dev.off()
+
+best_k2 <- fit2_stats$Classes[which.min(fit2_stats$ICL)]
+
+#BEST LCA 
+set.seed(1234)
+lca2_best <- poLCA(f2, data = df_cluster2, nclass = 5, maxiter = 500, verbose = FALSE)
+
+# posterior & entropy per respondent
+posterior2    <- lca2_best$posterior
+entropy_vec2  <- -rowSums(posterior2 * log(posterior2 + 1e-10))
+png("respondent_entropy2.png", width=800, height=600)
+plot(entropy_vec2, main=paste("Entropy per respondent (", lca2_best, "klassen)", sep=""),
+     xlab="Respondent index", ylab="Entropy")
+dev.off()
+
+png("hist_entropy2.png", width=800, height=600)
+hist(entropy_vec2, breaks=50, main="Verdeling Entropy per respondent", xlab="Entropy", ylab="Aantal respondenten")
+dev.off()
+
+#per class
+df2_entropy <- tibble(
+  Entropy = entropy_vec2,
+  Class   = factor(lca2_best$predclass)
+)
+entropy2_per_class <- df2_entropy %>%
+  group_by(Class) %>%
+  summarise(
+    GemiddeldeEntropy = mean(Entropy, na.rm=TRUE),
+    MedianEntropy     = median(Entropy, na.rm=TRUE),
+    Aantal            = n()
+  ) %>%
+  arrange(desc(GemiddeldeEntropy))
+print(entropy2_per_class)
+
+
+#class size
+class_sizes_2 <- as.data.frame(table(lca2_best$predclass))
+colnames(class_sizes_2) <- c("Class", "Count")
+class_sizes_2$Class <- factor(class_sizes_2$Class)
+
+library(ggplot2)
+ggplot(class_sizes_2, aes(x = Class, y = Count, fill = Class)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Class sizes (2e cluster)", x = "Class", y = "Aantal respondenten") +
+  theme_minimal()
+
+
+#Variabele discrimination 
+probs_list2 <- lca2_best$probs
+
+delta_items2 <- lapply(names(probs_list2), function(item){
+  mat <- probs_list2[[item]]
+  pairs <- combn(nrow(mat), 2, simplify = FALSE)
+  delta_cd <- sapply(pairs, function(pr){
+    c <- pr[1]; d <- pr[2]
+    max(abs(mat[c,] - mat[d,]))
+  })
+  tibble(
+    item       = item,
+    mean_delta = mean(delta_cd),
+    max_delta  = max(delta_cd)
+  )
+})
+
+delta_df2 <- bind_rows(delta_items2) %>% arrange(desc(mean_delta))
+
+# Plot
+delta_df2 <- delta_df2 %>%
+  mutate(item_wrapped = stringr::str_wrap(item, width = 20)) %>%
+  arrange(mean_delta) %>%
+  mutate(item_wrapped = factor(item_wrapped, levels = item_wrapped))
+plot_delta2 <- delta_df2 %>%
+  tidyr::pivot_longer(cols = c(mean_delta, max_delta), names_to = "type", values_to = "delta") %>%
+  mutate(type = recode(type, mean_delta = "Mean Δ", max_delta = "Max Δ"))
+
+ggplot(plot_delta2, aes(x = delta, y = item_wrapped)) +
+  geom_col(data = dplyr::filter(plot_delta2, type == "Mean Δ"), fill = "steelblue", width = 0.6) +
+  geom_point(data = dplyr::filter(plot_delta2, type == "Max Δ"), color = "firebrick", size = 2) +
+  facet_grid(rows = vars(type), scales = "free_x", space = "free") +
+  labs(
+    x = expression(Delta[j]),
+    y = NULL,
+    title = expression("Item-level discriminatie: Mean"~Delta[j]~"en Max"~Delta[j]),
+    subtitle = "Mean Δ = gemiddelde |π[j|c]−π[j|d]|; Max Δ = grootste verschil"
+  ) +
+  theme_minimal(base_size = 12)
+
+#high entropy respondent 
+cutoff_entropy2 <- quantile(entropy_vec2, 0.95)
+slechte_cases2 <- which(entropy_vec2 > cutoff_entropy2)
+cat("Aantal respondenten met hoge entropy:", length(slechte_cases2), "\n")
+
+#entropy % per class
+df2_entropy <- df2_entropy %>%
+  mutate(HoogEntropy = Entropy > cutoff_entropy2)
+
+slechte_per_class <- df2_entropy %>%
+  group_by(Class) %>%
+  summarise(
+    totaal     = n(),
+    slecht     = sum(HoogEntropy),
+    pct_slecht = round(100 * slecht / totaal, 1)
+  ) %>%
+  arrange(desc(pct_slecht))
+
+print(slechte_per_class)
+
+
+#average Posterior Probability (APP)
+posterior2_max <- apply(posterior2, 1, max)
+df2_entropy <- df2_entropy %>%
+  mutate(APP_ind = posterior2_max)
+
+app_summary2 <- df2_entropy %>%
+  group_by(Class) %>%
+  summarise(
+    AantalRespondenten = n(),
+    GemiddeldeAPP = round(mean(APP_ind, na.rm = TRUE), 3),
+    MedianAPP     = round(median(APP_ind, na.rm = TRUE), 3),
+    SD_APP        = round(sd(APP_ind, na.rm = TRUE), 3)
+  )
+
+print(app_summary2)
+
+
+#AFTER VARIABLE DISCRIM VALUE
+table(df_LCMM$Triggers_for_Upgrade___Replacement_When_I_can_afford_it___my_financial_situation_improves, useNA = "ifany")
+table(df_LCMM$Peripheral_Purchase_Triggers_When_I_can_afford_a_better_accessory___peripheral_than_my_current_one, useNA = "ifany")
+df_LCMM <- df_LCMM %>%
+  mutate(Purchase_Upgrade_Triggers_FinancialSituation = if_else(
+    Triggers_for_Upgrade___Replacement_When_I_can_afford_it___my_financial_situation_improves == 1 |
+      Peripheral_Purchase_Triggers_When_I_can_afford_a_better_accessory___peripheral_than_my_current_one == 1,
+    1, 0
+  ))
+table(df_LCMM$Purchase_Upgrade_Triggers_FinancialSituation, useNA = "ifany")
+
+
+
+#profiles
+df_cluster2_profile <- df_cluster2 %>%
+  mutate(Class = factor(lca2_best$predclass))
+sapply(df_cluster2_profile[new_vars], class)
+
+df_long_profile <- df_cluster2_profile %>%
+  pivot_longer(cols = all_of(new_vars), names_to = "Variable", values_to = "Value") %>%
+  group_by(Class, Variable, Value) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Class, Variable) %>%
+  mutate(pct = round(100 * n / sum(n), 1)) %>%
+  arrange(Variable, Class)
+
+print(head(df_long_profile, 20))
+
+
+top_bottom_profile <- df_long_profile %>%
+group_by(Class) %>%
+slice_max(order_by = pct, n = 10, with_ties = FALSE) %>%
+bind_rows(
+  df_long_profile %>%
+  group_by(Class) %>%
+      slice_min(order_by = pct, n = 0, with_ties = FALSE)
+    ) %>%
+  ungroup() %>%
+  mutate(label = paste(Variable, Value, sep = ": "))
+
+#plot
+ggplot(top_bottom_profile, aes(x = reorder(label, pct), y = pct, fill = Class)) +
+  geom_col(position = "dodge") 
+  coord_flip() +
+  facet_wrap(~ Class, scales = "free_y") 
+  labs(title = "Top & bottom frequenties per klasse",
+             x = "Variabele: Waarde", y = "Procent") 
+  theme_minimal(base_size = 12)
+
+  ggplot(df_long_profile_top, aes(x = Class, y = paste(Variable, Value, sep = ": "), fill = pct)) +
+   geom_tile(color = "white") 
+  scale_fill_gradient(low = "white", high = "darkblue")
+  labs(title = "Distributie van antwoordcategorieën per klasse",
+                 x = "Klasse", y = "Variabele: Waarde", fill = "%") 
+    theme_minimal(base_size = 11)
+library(ggplot2)
+
+ggplot(top_bottom_profile, aes(x = Class, y = paste(Variable, Value, sep = ": "), fill = pct)) +
+geom_tile(color = "white") +
+scale_fill_gradient(low = "white", high = "darkblue") +
+labs(title = "Distributie van antwoordcategorieën per klasse",
+         x = "Klasse", y = "Variabele: Waarde", fill = "%") +
+theme_minimal(base_size = 8)
+
+dominant_values <- df_long_profile_top %>%
+  group_by(Class, Variable) %>%
+  slice_max(order_by = pct, n = 1, with_ties = FALSE) %>%
+  arrange(Class, desc(pct))
+
+print(dominant_values)
+
+
+top_delta_vars <- delta_df2 %>%
+  filter(mean_delta >= 0.5) %>%
+  pull(item)
+
+df_long_profile_top <- df_long_profile %>%
+  filter(Variable %in% top_delta_vars)
+
+
+
+
+
+
+
+#LATENT TREE ANALYSIS
+install.packages("bnlearn")
+install.packages("BiocManager")
+BiocManager::install("Rgraphviz")    
+library(bnlearn)
+library(Rgraphviz)
+
